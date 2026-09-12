@@ -16,6 +16,7 @@ export function buildAssetApp(options: BuildAssetAppOptions) {
     request.log.error({ err: error, correlationId }, "Unhandled asset API error");
     return reply.status(500).send({ envelopeVersion: "1", correlationId, error: { code: "internal.error", message: "Internal server error", retryable: false } });
   });
+  app.get("/api/v1/inventory/indicators", async request => { const context = await options.resolveContext(request); return service.inventoryIndicators(context); });
   app.post("/api/v1/assets", async (request, reply) => { const context = await options.resolveContext(request); const asset = await service.create(context, request.body); return reply.status(201).send(asset); });
   app.get("/api/v1/assets", async request => { const context = await options.resolveContext(request); return service.search(context, request.query); });
   app.get("/api/v1/assets/map", async request => { const context = await options.resolveContext(request); const query = request.query as Record<string, string | undefined>; return service.searchByBounds(context, { minLatitude: Number(query.minLatitude), maxLatitude: Number(query.maxLatitude), minLongitude: Number(query.minLongitude), maxLongitude: Number(query.maxLongitude) }); });
