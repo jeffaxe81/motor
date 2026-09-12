@@ -55,6 +55,17 @@ export function buildAssetApp(options: BuildAssetAppOptions) {
     return reply.status(201).send(asset);
   });
 
+  app.get("/api/v1/assets/map", async request => {
+    const context = await options.resolveContext(request);
+    const query = request.query as Record<string, string | undefined>;
+    return service.searchByBounds(context, {
+      minLatitude: Number(query.minLatitude),
+      maxLatitude: Number(query.maxLatitude),
+      minLongitude: Number(query.minLongitude),
+      maxLongitude: Number(query.maxLongitude),
+    });
+  });
+
   app.get("/api/v1/assets/:id/history", async request => {
     const context = await options.resolveContext(request);
     const { id } = request.params as { id: string };
@@ -69,6 +80,18 @@ export function buildAssetApp(options: BuildAssetAppOptions) {
       toVersion?: string;
     };
     return service.compare(context, id, Number(fromVersion), Number(toVersion));
+  });
+
+  app.get("/api/v1/assets/:id/location", async request => {
+    const context = await options.resolveContext(request);
+    const { id } = request.params as { id: string };
+    return service.getLocation(context, id);
+  });
+
+  app.put("/api/v1/assets/:id/location", async request => {
+    const context = await options.resolveContext(request);
+    const { id } = request.params as { id: string };
+    return service.setLocation(context, id, request.body);
   });
 
   app.get("/api/v1/assets/:id", async request => {
