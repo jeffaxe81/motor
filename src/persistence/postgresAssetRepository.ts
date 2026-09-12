@@ -5,6 +5,7 @@ import type {
   Asset,
   AssetAuditEntry,
   AssetBounds,
+  AssetEvidence,
   AssetLocation,
   AssetSearchInput,
   AssetSearchResult,
@@ -12,7 +13,7 @@ import type {
 } from "../domain/asset.js";
 import { codeConflictError } from "../domain/asset.js";
 import type { AssetRepository, AssetUpdateResult } from "../application/assetRepository.js";
-import { assetAuditLog, assetEventOutbox, assetLocations, assetVersions, assets } from "./schema.js";
+import { assetAuditLog, assetEvidence, assetEventOutbox, assetLocations, assetVersions, assets } from "./schema.js";
 
 function isTenantCodeConflict(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -65,6 +66,26 @@ function toLocation(row: typeof assetLocations.$inferSelect): AssetLocation {
     updatedAt: row.updatedAt,
     updatedBy: row.updatedBy,
     correlationId: row.correlationId,
+  };
+}
+
+function toEvidence(row: typeof assetEvidence.$inferSelect): AssetEvidence {
+  return {
+    id: row.id,
+    tenantId: row.tenantId,
+    assetId: row.assetId,
+    kind: row.kind as AssetEvidence["kind"],
+    fileName: row.fileName,
+    mediaType: row.mediaType as AssetEvidence["mediaType"],
+    sizeBytes: row.sizeBytes,
+    storageKey: row.storageKey,
+    sha256: row.sha256,
+    source: row.source,
+    ...(row.signatureReference ? { signatureReference: row.signatureReference } : {}),
+    createdAt: row.createdAt,
+    createdBy: row.createdBy,
+    correlationId: row.correlationId,
+    valid: row.valid,
   };
 }
 
@@ -129,7 +150,7 @@ export class PostgresAssetRepository implements AssetRepository {
 
   constructor(pool: Pool) {
     this.db = drizzle(pool, {
-      schema: { assets, assetAuditLog, assetVersions, assetEventOutbox, assetLocations },
+      schema: { assets, assetAuditLog, assetVersions, assetEventOutbox, assetLocations, assetEvidence },
     });
   }
 
@@ -182,6 +203,35 @@ export class PostgresAssetRepository implements AssetRepository {
       .where(and(eq(assetVersions.tenantId, tenantId), eq(assetVersions.assetId, assetId)))
       .orderBy(asc(assetVersions.version));
     return rows.map(toSnapshot);
+  }
+
+  async addEvidence(evidence: AssetEvidence): Promise<AssetEvidence> {
+    const rows = await this.db.insert(assetEvidence).values({
+      id: evidence.id,
+      tenantId: evidence.tenantId,
+      assetId: evidence.assetId,
+      kind: evidence.kind,
+      fileName: evidence.fileName,
+      mediaType: evidence.mediaType,
+      sizeBytes: evidence.sizeBytes,
+      storageKey: evidence.storageKey,
+      sha256: evidence.sha256,
+      source: evidence.source,
+      signatureReference: evidence.signatureReference,
+      createdAt: evidence.createdAt,
+      createdBy: evidence.createdBy,
+      correlationId: evidence.correlationId,
+      valid: evidence.valid,
+    }).returning();
+    if (!rows[0]) throw new Error("Asset evidence insert returned no row");
+    return toEvidence(rows[0]);
+  }
+
+  async listEvidence(tenantId: string, assetId: string): Promise<AssetEvidence[]> {
+    const rows = await this.db.select().from(assetEvidence)
+      .where(and(eq(assetEvidence.tenantId, tenantId), eq(assetEvidence.assetId, assetId)))
+      .orderBy(asc(assetEvidence.createdAt), asc(assetEvidence.id));
+    return rows.map(toEvidence);
   }
 
   async setLocation(location: AssetLocation): Promise<AssetLocation> {

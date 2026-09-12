@@ -67,6 +67,19 @@ export function buildAssetApp(options: BuildAssetAppOptions) {
     return service.timeline(context, id);
   });
 
+  app.get("/api/v1/assets/:id/evidence", async request => {
+    const context = await options.resolveContext(request);
+    const { id } = request.params as { id: string };
+    return service.listEvidence(context, id);
+  });
+
+  app.post("/api/v1/assets/:id/evidence", async (request, reply) => {
+    const context = await options.resolveContext(request);
+    const { id } = request.params as { id: string };
+    const evidence = await service.addEvidence(context, id, request.body);
+    return reply.status(201).send(evidence);
+  });
+
   app.get("/api/v1/assets/:id/history", async request => {
     const context = await options.resolveContext(request);
     const { id } = request.params as { id: string };

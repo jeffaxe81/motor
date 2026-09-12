@@ -2,6 +2,7 @@ import type {
   Asset,
   AssetAuditEntry,
   AssetBounds,
+  AssetEvidence,
   AssetLocation,
   AssetSearchInput,
   AssetSearchResult,
@@ -38,6 +39,10 @@ function cloneLocation(location: AssetLocation): AssetLocation {
   return { ...location, updatedAt: new Date(location.updatedAt) };
 }
 
+function cloneEvidence(evidence: AssetEvidence): AssetEvidence {
+  return { ...evidence, createdAt: new Date(evidence.createdAt) };
+}
+
 function snapshotFor(asset: Asset, audit: AssetAuditEntry): AssetVersionSnapshot {
   return {
     tenantId: asset.tenantId,
@@ -62,6 +67,7 @@ export class InMemoryAssetRepository implements AssetRepository {
   private readonly audit: AssetAuditEntry[] = [];
   private readonly versions = new Map<string, AssetVersionSnapshot[]>();
   private readonly locations = new Map<string, AssetLocation>();
+  private readonly evidence = new Map<string, AssetEvidence[]>();
 
   async findById(tenantId: string, assetId: string): Promise<Asset | null> {
     const asset = this.assets.get(assetKey(tenantId, assetId));
@@ -99,6 +105,20 @@ export class InMemoryAssetRepository implements AssetRepository {
 
   async listHistory(tenantId: string, assetId: string): Promise<AssetVersionSnapshot[]> {
     return (this.versions.get(assetKey(tenantId, assetId)) ?? []).map(cloneSnapshot);
+  }
+
+  async addEvidence(evidence: AssetEvidence): Promise<AssetEvidence> {
+    const key = assetKey(evidence.tenantId, evidence.assetId);
+    const items = this.evidence.get(key) ?? [];
+    items.push(cloneEvidence(evidence));
+    this.evidence.set(key, items);
+    return cloneEvidence(evidence);
+  }
+
+  async listEvidence(tenantId: string, assetId: string): Promise<AssetEvidence[]> {
+    return (this.evidence.get(assetKey(tenantId, assetId)) ?? [])
+      .map(cloneEvidence)
+      .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime() || left.id.localeCompare(right.id));
   }
 
   async setLocation(location: AssetLocation): Promise<AssetLocation> {

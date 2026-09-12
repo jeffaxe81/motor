@@ -3,6 +3,7 @@ import { ZodError } from "zod";
 import {
   assetBoundsSchema,
   assetCreateInputSchema,
+  assetEvidenceInputSchema,
   assetLocationInputSchema,
   assetRequestContextSchema,
   assetSearchInputSchema,
@@ -16,6 +17,8 @@ import {
   type AssetAuditEntry,
   type AssetBounds,
   type AssetCreateInput,
+  type AssetEvidence,
+  type AssetEvidenceInput,
   type AssetLocation,
   type AssetLocationInput,
   type AssetRequestContext,
@@ -58,6 +61,32 @@ function timelineItemFrom(snapshot: AssetVersionSnapshot): AssetTimelineItem {
       assetType: snapshot.assetType,
       status: snapshot.status,
       technicalData: structuredClone(snapshot.technicalData),
+    },
+  };
+}
+
+function evidenceTimelineItem(evidence: AssetEvidence): AssetTimelineItem {
+  return {
+    id: `asset:${evidence.assetId}:evidence:${evidence.id}`,
+    tenantId: evidence.tenantId,
+    assetId: evidence.assetId,
+    type: "asset.evidence.added",
+    occurredAt: new Date(evidence.createdAt),
+    authorUserId: evidence.createdBy,
+    source: evidence.source,
+    reason: evidence.kind,
+    correlationId: evidence.correlationId,
+    version: 0,
+    data: {
+      evidenceId: evidence.id,
+      kind: evidence.kind,
+      fileName: evidence.fileName,
+      mediaType: evidence.mediaType,
+      sizeBytes: evidence.sizeBytes,
+      storageKey: evidence.storageKey,
+      sha256: evidence.sha256,
+      signatureReference: evidence.signatureReference,
+      valid: evidence.valid,
     },
   };
 }
@@ -109,13 +138,57 @@ export class AssetService {
   }
 
   async timeline(contextInput: unknown, assetId: string): Promise<AssetTimelineItem[]> {
-    const history = await this.history(contextInput, assetId);
-    return history
-      .map(timelineItemFrom)
-      .sort((left, right) => {
-        const byTime = left.occurredAt.getTime() - right.occurredAt.getTime();
-        return byTime !== 0 ? byTime : left.version - right.version;
-      });
+    const context = this.parseContext(contextInput);
+    this.requirePermission(context, "assets:read");
+    const asset = await this.repository.findById(context.tenantId, assetId);
+    if (!asset) throw notFoundError();
+    const [history, evidence] = await Promise.all([
+      this.repository.listHistory(context.tenantId, assetId),
+      this.repository.listEvidence(context.tenantId, assetId),
+    ]);
+    return [
+      ...history.map(timelineItemFrom),
+      ...evidence.map(evidenceTimelineItem),
+    ].sort((left, right) => {
+      const byTime = left.occurredAt.getTime() - right.occurredAt.getTime();
+      if (byTime !== 0) return byTime;
+      if (left.version !== right.version) return left.version - right.version;
+      return left.id.localeCompare(right.id);
+    });
+  }
+
+  async addEvidence(contextInput: unknown, assetId: string, input: unknown): Promise<AssetEvidence> {
+    const context = this.parseContext(contextInput);
+    this.requirePermission(context, "assets:write");
+    const parsed = this.parseEvidence(input);
+    const asset = await this.repository.findById(context.tenantId, assetId);
+    if (!asset) throw notFoundError();
+    const evidence: AssetEvidence = {
+      id: this.generateId(),
+      tenantId: context.tenantId,
+      assetId,
+      kind: parsed.kind,
+      fileName: parsed.fileName,
+      mediaType: parsed.mediaType,
+      sizeBytes: parsed.sizeBytes,
+      storageKey: parsed.storageKey,
+      sha256: parsed.sha256.toLowerCase(),
+      source: parsed.source,
+      ...(parsed.signatureReference ? { signatureReference: parsed.signatureReference } : {}),
+      createdAt: this.now(),
+      createdBy: context.userId,
+      correlationId: context.correlationId,
+      valid: true,
+    };
+    return this.repository.addEvidence(evidence);
+  }
+
+  async listEvidence(contextInput: unknown, assetId: string): Promise<AssetEvidence[]> {
+    const context = this.parseContext(contextInput);
+    this.requirePermission(context, "assets:read");
+    const asset = await this.repository.findById(context.tenantId, assetId);
+    if (!asset) throw notFoundError();
+    return this.repository.listEvidence(context.tenantId, assetId);
   }
 
   async compare(contextInput: unknown, assetId: string, fromVersion: number, toVersion: number): Promise<AssetVersionComparison> {
@@ -190,6 +263,7 @@ export class AssetService {
   private parseLocation(input: unknown): AssetLocationInput { try { return assetLocationInputSchema.parse(input); } catch (error) { if (error instanceof ZodError) throw validationError(); throw error; } }
   private parseBounds(input: unknown): AssetBounds { try { return assetBoundsSchema.parse(input); } catch (error) { if (error instanceof ZodError) throw validationError(); throw error; } }
   private parseSearch(input: unknown): AssetSearchInput { try { return assetSearchInputSchema.parse(input ?? {}); } catch (error) { if (error instanceof ZodError) throw validationError(); throw error; } }
+  private parseEvidence(input: unknown): AssetEvidenceInput { try { return assetEvidenceInputSchema.parse(input); } catch (error) { if (error instanceof ZodError) throw validationError(); throw error; } }
   private requirePermission(context: AssetRequestContext, permission: string): void { if (!context.permissions.includes(permission)) throw forbiddenError(); }
 
   private auditFor(asset: Asset, context: AssetRequestContext, action: AssetAuditEntry["action"], occurredAt: Date, reason: string, origin: string): AssetAuditEntry {
