@@ -161,8 +161,8 @@ export class PostgresAssetRepository implements AssetRepository {
       if (textMatch) conditions.push(textMatch);
     }
     const where = and(...conditions);
-    const [{ value: totalValue }] = await this.db.select({ value: count() }).from(assets).where(where);
-    const total = Number(totalValue ?? 0);
+    const countRows = await this.db.select({ value: count() }).from(assets).where(where);
+    const total = Number(countRows[0]?.value ?? 0);
     const rows = await this.db.select().from(assets)
       .where(where)
       .orderBy(asc(assets.code), asc(assets.id))
