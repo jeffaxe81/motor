@@ -11,6 +11,16 @@ const maintenanceCostSchema = z.object({ category: z.string().trim().min(1).max(
 const maintenanceWarrantySchema = z.object({ reference: z.string().trim().min(1).max(300), validUntil: z.string().date(), documentReference: z.string().trim().min(1).max(500).optional() }).strict();
 const maintenanceLinksSchema = z.object({ inspectionId: z.string().trim().min(1).max(300).optional(), orderReference: z.string().trim().min(1).max(300).optional(), eventReference: z.string().trim().min(1).max(300).optional() }).strict();
 
+export const assetTelemetryInputSchema = z.object({
+  eventId: z.string().trim().min(1).max(300),
+  eventVersion: z.string().trim().min(1).max(32),
+  eventType: z.string().trim().min(1).max(160),
+  occurredAt: z.string().datetime({ offset: true }),
+  source: z.string().trim().min(1).max(128),
+  relevant: z.boolean(),
+  payload: z.record(z.string(), z.unknown()),
+}).strict();
+
 export const assetDispatchReferenceInputSchema = z.object({
   referenceType: z.enum(["occurrence", "order", "activity"]),
   referenceId: z.string().trim().min(1).max(300),
@@ -40,6 +50,7 @@ export type AssetInspectionInput = z.infer<typeof assetInspectionInputSchema>;
 export type AssetMaintenanceInput = z.infer<typeof assetMaintenanceInputSchema>;
 export type AssetRelationInput = z.infer<typeof assetRelationInputSchema>;
 export type AssetDispatchReferenceInput = z.infer<typeof assetDispatchReferenceInputSchema>;
+export type AssetTelemetryInput = z.infer<typeof assetTelemetryInputSchema>;
 
 export interface Asset { id: string; tenantId: string; code: string; name: string; assetType: string; status: string; technicalData: Record<string, unknown>; version: number; createdAt: Date; createdBy: string; updatedAt: Date; updatedBy: string; }
 export interface AssetSearchResult { items: Asset[]; page: number; pageSize: number; total: number; totalPages: number; }
@@ -49,9 +60,10 @@ export interface AssetInspection { id: string; tenantId: string; assetId: string
 export interface AssetMaintenance { id: string; tenantId: string; assetId: string; kind: string; description: string; parts: AssetMaintenanceInput["parts"]; costs: AssetMaintenanceInput["costs"]; totalCost: number; warranty?: AssetMaintenanceInput["warranty"]; links?: AssetMaintenanceInput["links"]; source: string; createdAt: Date; createdBy: string; correlationId: string; }
 export interface AssetRelation { id: string; tenantId: string; assetId: string; relatedAssetId: string; relationType: string; source: string; createdAt: Date; createdBy: string; correlationId: string; }
 export interface AssetDispatchReference { id: string; tenantId: string; assetId: string; referenceType: AssetDispatchReferenceInput["referenceType"]; referenceId: string; source: string; idempotencyKey: string; createdAt: Date; createdBy: string; correlationId: string; }
+export interface AssetTelemetry { id: string; tenantId: string; assetId: string; eventId: string; eventVersion: string; eventType: string; occurredAt: Date; source: string; relevant: boolean; payload: Record<string, unknown>; receivedAt: Date; receivedBy: string; correlationId: string; }
 export interface AssetAuditEntry { tenantId: string; assetId: string; action: "created" | "updated"; actorUserId: string; version: number; correlationId: string; occurredAt: Date; reason: string; origin: string; }
 export interface AssetVersionSnapshot { tenantId: string; assetId: string; version: number; code: string; name: string; assetType: string; status: string; technicalData: Record<string, unknown>; changedAt: Date; changedBy: string; reason: string; origin: string; correlationId: string; }
-export interface AssetTimelineItem { id: string; tenantId: string; assetId: string; type: "asset.created" | "asset.updated" | "asset.evidence.added" | "asset.inspection.finalized" | "asset.maintenance.recorded" | "asset.relation.added" | "asset.dispatch.reference.linked"; occurredAt: Date; authorUserId: string; source: string; reason: string; correlationId: string; version: number; data: Record<string, unknown>; }
+export interface AssetTimelineItem { id: string; tenantId: string; assetId: string; type: "asset.created" | "asset.updated" | "asset.evidence.added" | "asset.inspection.finalized" | "asset.maintenance.recorded" | "asset.relation.added" | "asset.dispatch.reference.linked" | "asset.telemetry.recorded"; occurredAt: Date; authorUserId: string; source: string; reason: string; correlationId: string; version: number; data: Record<string, unknown>; }
 export interface AssetVersionChange { field: "code" | "name" | "assetType" | "status" | "technicalData"; before: unknown; after: unknown; }
 export interface AssetVersionComparison { fromVersion: number; toVersion: number; changes: AssetVersionChange[]; }
 export class AssetError extends Error { constructor(public readonly code: string, message: string, public readonly httpStatus: number) { super(message); this.name = "AssetError"; } }
