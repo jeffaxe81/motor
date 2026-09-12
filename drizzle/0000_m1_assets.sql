@@ -29,7 +29,7 @@ CREATE TABLE "asset_audit_log" (
   CONSTRAINT "asset_audit_asset_tenant_fk"
     FOREIGN KEY ("asset_id", "tenant_id")
     REFERENCES "assets"("id", "tenant_id")
-    ON DELETE CASCADE
+    ON DELETE RESTRICT
 );
 
 CREATE INDEX "asset_audit_tenant_asset_idx"
