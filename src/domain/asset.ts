@@ -2,10 +2,22 @@ import { z } from "zod";
 
 const opaqueIdSchema = z.string().trim().min(1).max(128);
 const correlationIdSchema = z.string().trim().min(8).max(160);
+const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/i);
 
 const assetChangeMetadataSchema = z.object({
   reason: z.string().trim().min(1).max(200),
   origin: z.string().trim().min(1).max(128),
+}).strict();
+
+export const assetEvidenceInputSchema = z.object({
+  kind: z.enum(["photo-before", "photo-after", "document", "report"]),
+  fileName: z.string().trim().min(1).max(255),
+  mediaType: z.enum(["image/jpeg", "image/png", "application/pdf"]),
+  sizeBytes: z.number().int().positive().max(25 * 1024 * 1024),
+  storageKey: z.string().trim().min(1).max(500),
+  sha256: sha256Schema,
+  source: z.string().trim().min(1).max(128),
+  signatureReference: z.string().trim().min(1).max(300).optional(),
 }).strict();
 
 export const assetLocationInputSchema = z.object({
@@ -67,6 +79,7 @@ export type AssetRequestContext = z.infer<typeof assetRequestContextSchema>;
 export type AssetLocationInput = z.infer<typeof assetLocationInputSchema>;
 export type AssetBounds = z.infer<typeof assetBoundsSchema>;
 export type AssetSearchInput = z.infer<typeof assetSearchInputSchema>;
+export type AssetEvidenceInput = z.infer<typeof assetEvidenceInputSchema>;
 
 export interface Asset {
   id: string;
@@ -102,6 +115,24 @@ export interface AssetLocation {
   correlationId: string;
 }
 
+export interface AssetEvidence {
+  id: string;
+  tenantId: string;
+  assetId: string;
+  kind: AssetEvidenceInput["kind"];
+  fileName: string;
+  mediaType: AssetEvidenceInput["mediaType"];
+  sizeBytes: number;
+  storageKey: string;
+  sha256: string;
+  source: string;
+  signatureReference?: string;
+  createdAt: Date;
+  createdBy: string;
+  correlationId: string;
+  valid: boolean;
+}
+
 export interface AssetAuditEntry {
   tenantId: string;
   assetId: string;
@@ -134,20 +165,14 @@ export interface AssetTimelineItem {
   id: string;
   tenantId: string;
   assetId: string;
-  type: "asset.created" | "asset.updated";
+  type: "asset.created" | "asset.updated" | "asset.evidence.added";
   occurredAt: Date;
   authorUserId: string;
   source: string;
   reason: string;
   correlationId: string;
   version: number;
-  data: {
-    code: string;
-    name: string;
-    assetType: string;
-    status: string;
-    technicalData: Record<string, unknown>;
-  };
+  data: Record<string, unknown>;
 }
 
 export interface AssetVersionChange {
