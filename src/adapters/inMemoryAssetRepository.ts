@@ -1,4 +1,10 @@
-import type { Asset, AssetAuditEntry, AssetVersionSnapshot } from "../domain/asset.js";
+import type {
+  Asset,
+  AssetAuditEntry,
+  AssetBounds,
+  AssetLocation,
+  AssetVersionSnapshot,
+} from "../domain/asset.js";
 import { codeConflictError } from "../domain/asset.js";
 import type { AssetRepository, AssetUpdateResult } from "../application/assetRepository.js";
 
@@ -26,6 +32,10 @@ function cloneSnapshot(snapshot: AssetVersionSnapshot): AssetVersionSnapshot {
   };
 }
 
+function cloneLocation(location: AssetLocation): AssetLocation {
+  return { ...location, updatedAt: new Date(location.updatedAt) };
+}
+
 function snapshotFor(asset: Asset, audit: AssetAuditEntry): AssetVersionSnapshot {
   return {
     tenantId: asset.tenantId,
@@ -49,6 +59,7 @@ export class InMemoryAssetRepository implements AssetRepository {
   private readonly codes = new Map<string, string>();
   private readonly audit: AssetAuditEntry[] = [];
   private readonly versions = new Map<string, AssetVersionSnapshot[]>();
+  private readonly locations = new Map<string, AssetLocation>();
 
   async findById(tenantId: string, assetId: string): Promise<Asset | null> {
     const asset = this.assets.get(assetKey(tenantId, assetId));
@@ -62,6 +73,29 @@ export class InMemoryAssetRepository implements AssetRepository {
 
   async listHistory(tenantId: string, assetId: string): Promise<AssetVersionSnapshot[]> {
     return (this.versions.get(assetKey(tenantId, assetId)) ?? []).map(cloneSnapshot);
+  }
+
+  async setLocation(location: AssetLocation): Promise<AssetLocation> {
+    const stored = cloneLocation(location);
+    this.locations.set(assetKey(location.tenantId, location.assetId), stored);
+    return cloneLocation(stored);
+  }
+
+  async findLocation(tenantId: string, assetId: string): Promise<AssetLocation | null> {
+    const location = this.locations.get(assetKey(tenantId, assetId));
+    return location ? cloneLocation(location) : null;
+  }
+
+  async findLocationsByBounds(tenantId: string, bounds: AssetBounds): Promise<AssetLocation[]> {
+    return [...this.locations.values()]
+      .filter(location =>
+        location.tenantId === tenantId
+        && location.latitude >= bounds.minLatitude
+        && location.latitude <= bounds.maxLatitude
+        && location.longitude >= bounds.minLongitude
+        && location.longitude <= bounds.maxLongitude)
+      .sort((left, right) => left.assetId.localeCompare(right.assetId))
+      .map(cloneLocation);
   }
 
   async create(asset: Asset, audit: AssetAuditEntry): Promise<Asset> {
