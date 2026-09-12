@@ -9,6 +9,7 @@
   "packageManager": "pnpm@10.15.1",
   "scripts": {
     "check": "tsc --noEmit",
+    "security:check": "pnpm audit --prod --audit-level high",
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "tsc -p tsconfig.build.json",
