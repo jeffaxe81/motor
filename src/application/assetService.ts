@@ -100,8 +100,6 @@ export class AssetService {
 
     const asset = await this.repository.findById(context.tenantId, assetId);
     if (!asset) throw notFoundError();
-    if (!this.repository.listHistory) throw new Error("Asset history repository is not available");
-
     return this.repository.listHistory(context.tenantId, assetId);
   }
 
