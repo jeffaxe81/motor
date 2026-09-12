@@ -74,7 +74,14 @@ export class AssetService {
       updatedBy: context.userId,
     };
 
-    const audit = this.auditFor(asset, context, "created", now);
+    const audit = this.auditFor(
+      asset,
+      context,
+      "created",
+      now,
+      "initial-registration",
+      "api",
+    );
     return this.repository.create(asset, audit);
   }
 
@@ -160,7 +167,14 @@ export class AssetService {
       assetId,
       parsed.expectedVersion,
       next,
-      this.auditFor(next, context, "updated", now),
+      this.auditFor(
+        next,
+        context,
+        "updated",
+        now,
+        parsed.change?.reason ?? "technical-update",
+        parsed.change?.origin ?? "api",
+      ),
     );
 
     if (result.status === "not_found") throw notFoundError();
@@ -205,6 +219,8 @@ export class AssetService {
     context: AssetRequestContext,
     action: AssetAuditEntry["action"],
     occurredAt: Date,
+    reason: string,
+    origin: string,
   ): AssetAuditEntry {
     return {
       tenantId: context.tenantId,
@@ -214,6 +230,8 @@ export class AssetService {
       version: asset.version,
       correlationId: context.correlationId,
       occurredAt,
+      reason,
+      origin,
     };
   }
 }
