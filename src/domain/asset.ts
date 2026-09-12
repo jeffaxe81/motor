@@ -24,6 +24,14 @@ export const assetBoundsSchema = z.object({
   { message: "Invalid geographic bounds" },
 );
 
+export const assetSearchInputSchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  pageSize: z.coerce.number().int().positive().max(100).default(25),
+  query: z.string().trim().min(1).max(200).optional(),
+  assetType: z.string().trim().min(1).max(100).optional(),
+  status: z.string().trim().min(1).max(64).optional(),
+}).strict();
+
 export const assetCreateInputSchema = z.object({
   code: z.string().trim().min(1).max(100),
   name: z.string().trim().min(1).max(200),
@@ -58,6 +66,7 @@ export type AssetUpdateInput = z.infer<typeof assetUpdateInputSchema>;
 export type AssetRequestContext = z.infer<typeof assetRequestContextSchema>;
 export type AssetLocationInput = z.infer<typeof assetLocationInputSchema>;
 export type AssetBounds = z.infer<typeof assetBoundsSchema>;
+export type AssetSearchInput = z.infer<typeof assetSearchInputSchema>;
 
 export interface Asset {
   id: string;
@@ -72,6 +81,14 @@ export interface Asset {
   createdBy: string;
   updatedAt: Date;
   updatedBy: string;
+}
+
+export interface AssetSearchResult {
+  items: Asset[];
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
 }
 
 export interface AssetLocation {

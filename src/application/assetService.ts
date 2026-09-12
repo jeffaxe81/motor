@@ -5,6 +5,7 @@ import {
   assetCreateInputSchema,
   assetLocationInputSchema,
   assetRequestContextSchema,
+  assetSearchInputSchema,
   assetUpdateInputSchema,
   codeConflictError,
   forbiddenError,
@@ -18,6 +19,8 @@ import {
   type AssetLocation,
   type AssetLocationInput,
   type AssetRequestContext,
+  type AssetSearchInput,
+  type AssetSearchResult,
   type AssetUpdateInput,
   type AssetVersionChange,
   type AssetVersionComparison,
@@ -30,13 +33,7 @@ export interface AssetServiceDependencies {
   generateId?: () => string;
 }
 
-const comparableFields = [
-  "code",
-  "name",
-  "assetType",
-  "status",
-  "technicalData",
-] as const;
+const comparableFields = ["code", "name", "assetType", "status", "technicalData"] as const;
 
 function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
@@ -46,10 +43,7 @@ export class AssetService {
   private readonly now: () => Date;
   private readonly generateId: () => string;
 
-  constructor(
-    private readonly repository: AssetRepository,
-    dependencies: AssetServiceDependencies = {},
-  ) {
+  constructor(private readonly repository: AssetRepository, dependencies: AssetServiceDependencies = {}) {
     this.now = dependencies.now ?? (() => new Date());
     this.generateId = dependencies.generateId ?? randomUUID;
   }
@@ -58,42 +52,26 @@ export class AssetService {
     const context = this.parseContext(contextInput);
     this.requirePermission(context, "assets:write");
     const parsed = this.parseCreate(input);
-
-    if (await this.repository.findByCode(context.tenantId, parsed.code)) {
-      throw codeConflictError();
-    }
+    if (await this.repository.findByCode(context.tenantId, parsed.code)) throw codeConflictError();
 
     const now = this.now();
     const asset: Asset = {
-      id: this.generateId(),
-      tenantId: context.tenantId,
-      code: parsed.code,
-      name: parsed.name,
-      assetType: parsed.assetType,
-      status: parsed.status,
-      technicalData: structuredClone(parsed.technicalData),
-      version: 1,
-      createdAt: now,
-      createdBy: context.userId,
-      updatedAt: now,
-      updatedBy: context.userId,
+      id: this.generateId(), tenantId: context.tenantId, code: parsed.code, name: parsed.name,
+      assetType: parsed.assetType, status: parsed.status, technicalData: structuredClone(parsed.technicalData),
+      version: 1, createdAt: now, createdBy: context.userId, updatedAt: now, updatedBy: context.userId,
     };
+    return this.repository.create(asset, this.auditFor(asset, context, "created", now, "initial-registration", "api"));
+  }
 
-    const audit = this.auditFor(
-      asset,
-      context,
-      "created",
-      now,
-      "initial-registration",
-      "api",
-    );
-    return this.repository.create(asset, audit);
+  async search(contextInput: unknown, input: unknown): Promise<AssetSearchResult> {
+    const context = this.parseContext(contextInput);
+    this.requirePermission(context, "assets:read");
+    return this.repository.search(context.tenantId, this.parseSearch(input));
   }
 
   async get(contextInput: unknown, assetId: string): Promise<Asset> {
     const context = this.parseContext(contextInput);
     this.requirePermission(context, "assets:read");
-
     const asset = await this.repository.findById(context.tenantId, assetId);
     if (!asset) throw notFoundError();
     return asset;
@@ -102,38 +80,21 @@ export class AssetService {
   async history(contextInput: unknown, assetId: string): Promise<AssetVersionSnapshot[]> {
     const context = this.parseContext(contextInput);
     this.requirePermission(context, "assets:read");
-
     const asset = await this.repository.findById(context.tenantId, assetId);
     if (!asset) throw notFoundError();
     return this.repository.listHistory(context.tenantId, assetId);
   }
 
-  async compare(
-    contextInput: unknown,
-    assetId: string,
-    fromVersion: number,
-    toVersion: number,
-  ): Promise<AssetVersionComparison> {
-    if (!Number.isInteger(fromVersion) || fromVersion <= 0 || !Number.isInteger(toVersion) || toVersion <= 0) {
-      throw validationError();
-    }
-
+  async compare(contextInput: unknown, assetId: string, fromVersion: number, toVersion: number): Promise<AssetVersionComparison> {
+    if (!Number.isInteger(fromVersion) || fromVersion <= 0 || !Number.isInteger(toVersion) || toVersion <= 0) throw validationError();
     const history = await this.history(contextInput, assetId);
     const from = history.find(snapshot => snapshot.version === fromVersion);
     const to = history.find(snapshot => snapshot.version === toVersion);
     if (!from || !to) throw notFoundError();
-
     const changes: AssetVersionChange[] = [];
     for (const field of comparableFields) {
-      if (!sameValue(from[field], to[field])) {
-        changes.push({
-          field,
-          before: structuredClone(from[field]),
-          after: structuredClone(to[field]),
-        });
-      }
+      if (!sameValue(from[field], to[field])) changes.push({ field, before: structuredClone(from[field]), after: structuredClone(to[field]) });
     }
-
     return { fromVersion, toVersion, changes };
   }
 
@@ -141,26 +102,14 @@ export class AssetService {
     const context = this.parseContext(contextInput);
     this.requirePermission(context, "assets:write");
     const parsed = this.parseLocation(input);
-
     const asset = await this.repository.findById(context.tenantId, assetId);
     if (!asset) throw notFoundError();
-
-    return this.repository.setLocation({
-      tenantId: context.tenantId,
-      assetId,
-      latitude: parsed.latitude,
-      longitude: parsed.longitude,
-      source: parsed.source,
-      updatedAt: this.now(),
-      updatedBy: context.userId,
-      correlationId: context.correlationId,
-    });
+    return this.repository.setLocation({ tenantId: context.tenantId, assetId, latitude: parsed.latitude, longitude: parsed.longitude, source: parsed.source, updatedAt: this.now(), updatedBy: context.userId, correlationId: context.correlationId });
   }
 
   async getLocation(contextInput: unknown, assetId: string): Promise<AssetLocation> {
     const context = this.parseContext(contextInput);
     this.requirePermission(context, "assets:read");
-
     const asset = await this.repository.findById(context.tenantId, assetId);
     if (!asset) throw notFoundError();
     const location = await this.repository.findLocation(context.tenantId, assetId);
@@ -171,23 +120,19 @@ export class AssetService {
   async searchByBounds(contextInput: unknown, boundsInput: unknown): Promise<AssetLocation[]> {
     const context = this.parseContext(contextInput);
     this.requirePermission(context, "assets:read");
-    const bounds = this.parseBounds(boundsInput);
-    return this.repository.findLocationsByBounds(context.tenantId, bounds);
+    return this.repository.findLocationsByBounds(context.tenantId, this.parseBounds(boundsInput));
   }
 
   async update(contextInput: unknown, assetId: string, input: unknown): Promise<Asset> {
     const context = this.parseContext(contextInput);
     this.requirePermission(context, "assets:write");
     const parsed = this.parseUpdate(input);
-
     const current = await this.repository.findById(context.tenantId, assetId);
     if (!current) throw notFoundError();
-
     if (parsed.code !== undefined && parsed.code !== current.code) {
       const withCode = await this.repository.findByCode(context.tenantId, parsed.code);
       if (withCode && withCode.id !== current.id) throw codeConflictError();
     }
-
     const now = this.now();
     const next: Asset = {
       ...current,
@@ -195,102 +140,26 @@ export class AssetService {
       ...(parsed.name !== undefined ? { name: parsed.name } : {}),
       ...(parsed.assetType !== undefined ? { assetType: parsed.assetType } : {}),
       ...(parsed.status !== undefined ? { status: parsed.status } : {}),
-      ...(parsed.technicalData !== undefined
-        ? { technicalData: structuredClone(parsed.technicalData) }
-        : {}),
-      version: current.version + 1,
-      updatedAt: now,
-      updatedBy: context.userId,
+      ...(parsed.technicalData !== undefined ? { technicalData: structuredClone(parsed.technicalData) } : {}),
+      version: current.version + 1, updatedAt: now, updatedBy: context.userId,
     };
-
-    const result = await this.repository.update(
-      context.tenantId,
-      assetId,
-      parsed.expectedVersion,
-      next,
-      this.auditFor(
-        next,
-        context,
-        "updated",
-        now,
-        parsed.change?.reason ?? "technical-update",
-        parsed.change?.origin ?? "api",
-      ),
-    );
-
+    const result = await this.repository.update(context.tenantId, assetId, parsed.expectedVersion, next,
+      this.auditFor(next, context, "updated", now, parsed.change?.reason ?? "technical-update", parsed.change?.origin ?? "api"));
     if (result.status === "not_found") throw notFoundError();
     if (result.status === "version_conflict") throw versionConflictError();
     if (result.status === "code_conflict") throw codeConflictError();
     return result.asset;
   }
 
-  private parseContext(input: unknown): AssetRequestContext {
-    try {
-      return assetRequestContextSchema.parse(input);
-    } catch (error) {
-      if (error instanceof ZodError) throw validationError();
-      throw error;
-    }
-  }
+  private parseContext(input: unknown): AssetRequestContext { try { return assetRequestContextSchema.parse(input); } catch (error) { if (error instanceof ZodError) throw validationError(); throw error; } }
+  private parseCreate(input: unknown): AssetCreateInput { try { return assetCreateInputSchema.parse(input); } catch (error) { if (error instanceof ZodError) throw validationError(); throw error; } }
+  private parseUpdate(input: unknown): AssetUpdateInput { try { return assetUpdateInputSchema.parse(input); } catch (error) { if (error instanceof ZodError) throw validationError(); throw error; } }
+  private parseLocation(input: unknown): AssetLocationInput { try { return assetLocationInputSchema.parse(input); } catch (error) { if (error instanceof ZodError) throw validationError(); throw error; } }
+  private parseBounds(input: unknown): AssetBounds { try { return assetBoundsSchema.parse(input); } catch (error) { if (error instanceof ZodError) throw validationError(); throw error; } }
+  private parseSearch(input: unknown): AssetSearchInput { try { return assetSearchInputSchema.parse(input ?? {}); } catch (error) { if (error instanceof ZodError) throw validationError(); throw error; } }
+  private requirePermission(context: AssetRequestContext, permission: string): void { if (!context.permissions.includes(permission)) throw forbiddenError(); }
 
-  private parseCreate(input: unknown): AssetCreateInput {
-    try {
-      return assetCreateInputSchema.parse(input);
-    } catch (error) {
-      if (error instanceof ZodError) throw validationError();
-      throw error;
-    }
-  }
-
-  private parseUpdate(input: unknown): AssetUpdateInput {
-    try {
-      return assetUpdateInputSchema.parse(input);
-    } catch (error) {
-      if (error instanceof ZodError) throw validationError();
-      throw error;
-    }
-  }
-
-  private parseLocation(input: unknown): AssetLocationInput {
-    try {
-      return assetLocationInputSchema.parse(input);
-    } catch (error) {
-      if (error instanceof ZodError) throw validationError();
-      throw error;
-    }
-  }
-
-  private parseBounds(input: unknown): AssetBounds {
-    try {
-      return assetBoundsSchema.parse(input);
-    } catch (error) {
-      if (error instanceof ZodError) throw validationError();
-      throw error;
-    }
-  }
-
-  private requirePermission(context: AssetRequestContext, permission: string): void {
-    if (!context.permissions.includes(permission)) throw forbiddenError();
-  }
-
-  private auditFor(
-    asset: Asset,
-    context: AssetRequestContext,
-    action: AssetAuditEntry["action"],
-    occurredAt: Date,
-    reason: string,
-    origin: string,
-  ): AssetAuditEntry {
-    return {
-      tenantId: context.tenantId,
-      assetId: asset.id,
-      action,
-      actorUserId: context.userId,
-      version: asset.version,
-      correlationId: context.correlationId,
-      occurredAt,
-      reason,
-      origin,
-    };
+  private auditFor(asset: Asset, context: AssetRequestContext, action: AssetAuditEntry["action"], occurredAt: Date, reason: string, origin: string): AssetAuditEntry {
+    return { tenantId: context.tenantId, assetId: asset.id, action, actorUserId: context.userId, version: asset.version, correlationId: context.correlationId, occurredAt, reason, origin };
   }
 }

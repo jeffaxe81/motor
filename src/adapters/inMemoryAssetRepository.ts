@@ -3,6 +3,8 @@ import type {
   AssetAuditEntry,
   AssetBounds,
   AssetLocation,
+  AssetSearchInput,
+  AssetSearchResult,
   AssetVersionSnapshot,
 } from "../domain/asset.js";
 import { codeConflictError } from "../domain/asset.js";
@@ -69,6 +71,30 @@ export class InMemoryAssetRepository implements AssetRepository {
   async findByCode(tenantId: string, code: string): Promise<Asset | null> {
     const id = this.codes.get(codeKey(tenantId, code));
     return id ? this.findById(tenantId, id) : null;
+  }
+
+  async search(tenantId: string, input: AssetSearchInput): Promise<AssetSearchResult> {
+    const query = input.query?.toLocaleLowerCase();
+    const filtered = [...this.assets.values()]
+      .filter(asset => asset.tenantId === tenantId)
+      .filter(asset => !input.assetType || asset.assetType === input.assetType)
+      .filter(asset => !input.status || asset.status === input.status)
+      .filter(asset => {
+        if (!query) return true;
+        return [asset.code, asset.name, asset.assetType, asset.status, JSON.stringify(asset.technicalData)]
+          .some(value => value.toLocaleLowerCase().includes(query));
+      })
+      .sort((left, right) => left.code.localeCompare(right.code) || left.id.localeCompare(right.id));
+
+    const total = filtered.length;
+    const offset = (input.page - 1) * input.pageSize;
+    return {
+      items: filtered.slice(offset, offset + input.pageSize).map(cloneAsset),
+      page: input.page,
+      pageSize: input.pageSize,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / input.pageSize),
+    };
   }
 
   async listHistory(tenantId: string, assetId: string): Promise<AssetVersionSnapshot[]> {

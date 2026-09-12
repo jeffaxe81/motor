@@ -3,6 +3,8 @@ import type {
   AssetAuditEntry,
   AssetBounds,
   AssetLocation,
+  AssetSearchInput,
+  AssetSearchResult,
   AssetVersionSnapshot,
 } from "../domain/asset.js";
 
@@ -15,6 +17,7 @@ export type AssetUpdateResult =
 export interface AssetRepository {
   findById(tenantId: string, assetId: string): Promise<Asset | null>;
   findByCode(tenantId: string, code: string): Promise<Asset | null>;
+  search(tenantId: string, input: AssetSearchInput): Promise<AssetSearchResult>;
   listHistory(tenantId: string, assetId: string): Promise<AssetVersionSnapshot[]>;
   setLocation(location: AssetLocation): Promise<AssetLocation>;
   findLocation(tenantId: string, assetId: string): Promise<AssetLocation | null>;
