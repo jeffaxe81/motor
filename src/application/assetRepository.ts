@@ -10,6 +10,7 @@ import type {
   AssetRelation,
   AssetSearchInput,
   AssetSearchResult,
+  AssetTelemetry,
   AssetVersionSnapshot,
 } from "../domain/asset.js";
 
@@ -35,6 +36,9 @@ export interface AssetRepository {
   addDispatchReference(reference: AssetDispatchReference): Promise<AssetDispatchReference>;
   findDispatchReferenceByIdempotencyKey(tenantId: string, assetId: string, idempotencyKey: string): Promise<AssetDispatchReference | null>;
   listDispatchReferences(tenantId: string, assetId: string): Promise<AssetDispatchReference[]>;
+  addTelemetry(record: AssetTelemetry): Promise<AssetTelemetry>;
+  findTelemetryByEventId(tenantId: string, assetId: string, eventId: string): Promise<AssetTelemetry | null>;
+  listTelemetry(tenantId: string, assetId: string): Promise<AssetTelemetry[]>;
   setLocation(location: AssetLocation): Promise<AssetLocation>;
   findLocation(tenantId: string, assetId: string): Promise<AssetLocation | null>;
   findLocationsByBounds(tenantId: string, bounds: AssetBounds): Promise<AssetLocation[]>;
