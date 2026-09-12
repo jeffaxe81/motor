@@ -6,6 +6,7 @@ import type {
   AssetInspection,
   AssetLocation,
   AssetMaintenance,
+  AssetRelation,
   AssetSearchInput,
   AssetSearchResult,
   AssetVersionSnapshot,
@@ -28,6 +29,8 @@ export interface AssetRepository {
   listInspections(tenantId: string, assetId: string): Promise<AssetInspection[]>;
   addMaintenance(record: AssetMaintenance): Promise<AssetMaintenance>;
   listMaintenance(tenantId: string, assetId: string): Promise<AssetMaintenance[]>;
+  addRelation(relation: AssetRelation): Promise<AssetRelation>;
+  listRelations(tenantId: string, assetId: string): Promise<AssetRelation[]>;
   setLocation(location: AssetLocation): Promise<AssetLocation>;
   findLocation(tenantId: string, assetId: string): Promise<AssetLocation | null>;
   findLocationsByBounds(tenantId: string, bounds: AssetBounds): Promise<AssetLocation[]>;
