@@ -60,6 +60,34 @@ export interface AssetAuditEntry {
   occurredAt: Date;
 }
 
+export interface AssetVersionSnapshot {
+  tenantId: string;
+  assetId: string;
+  version: number;
+  code: string;
+  name: string;
+  assetType: string;
+  status: string;
+  technicalData: Record<string, unknown>;
+  changedAt: Date;
+  changedBy: string;
+  reason: string;
+  origin: string;
+  correlationId: string;
+}
+
+export interface AssetVersionChange {
+  field: "code" | "name" | "assetType" | "status" | "technicalData";
+  before: unknown;
+  after: unknown;
+}
+
+export interface AssetVersionComparison {
+  fromVersion: number;
+  toVersion: number;
+  changes: AssetVersionChange[];
+}
+
 export class AssetError extends Error {
   constructor(
     public readonly code: string,
