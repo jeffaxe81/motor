@@ -9,6 +9,20 @@ const assetChangeMetadataSchema = z.object({
   origin: z.string().trim().min(1).max(128),
 }).strict();
 
+const inspectionLocationSchema = z.object({
+  latitude: z.number().finite().min(-90).max(90),
+  longitude: z.number().finite().min(-180).max(180),
+}).strict();
+
+export const assetInspectionInputSchema = z.object({
+  checklistReference: z.string().trim().min(1).max(300),
+  responses: z.record(z.string(), z.unknown()),
+  result: z.string().trim().min(1).max(100),
+  source: z.string().trim().min(1).max(128),
+  location: inspectionLocationSchema.optional(),
+  evidenceIds: z.array(opaqueIdSchema).max(100).default([]),
+}).strict();
+
 export const assetEvidenceInputSchema = z.object({
   kind: z.enum(["photo-before", "photo-after", "document", "report"]),
   fileName: z.string().trim().min(1).max(255),
@@ -80,6 +94,7 @@ export type AssetLocationInput = z.infer<typeof assetLocationInputSchema>;
 export type AssetBounds = z.infer<typeof assetBoundsSchema>;
 export type AssetSearchInput = z.infer<typeof assetSearchInputSchema>;
 export type AssetEvidenceInput = z.infer<typeof assetEvidenceInputSchema>;
+export type AssetInspectionInput = z.infer<typeof assetInspectionInputSchema>;
 
 export interface Asset {
   id: string;
@@ -133,6 +148,22 @@ export interface AssetEvidence {
   valid: boolean;
 }
 
+export interface AssetInspection {
+  id: string;
+  tenantId: string;
+  assetId: string;
+  checklistReference: string;
+  responses: Record<string, unknown>;
+  result: string;
+  status: "finalized";
+  source: string;
+  location?: { latitude: number; longitude: number };
+  evidenceIds: string[];
+  createdAt: Date;
+  createdBy: string;
+  correlationId: string;
+}
+
 export interface AssetAuditEntry {
   tenantId: string;
   assetId: string;
@@ -165,7 +196,7 @@ export interface AssetTimelineItem {
   id: string;
   tenantId: string;
   assetId: string;
-  type: "asset.created" | "asset.updated" | "asset.evidence.added";
+  type: "asset.created" | "asset.updated" | "asset.evidence.added" | "asset.inspection.finalized";
   occurredAt: Date;
   authorUserId: string;
   source: string;
