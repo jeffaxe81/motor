@@ -5,7 +5,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AssetService } from "../src/application/assetService.js";
 
 const repositoryModulePath = "../src/persistence/postgresAssetRepository.js";
-const migrationPath = path.resolve(process.cwd(), "drizzle/0000_m1_assets.sql");
+const m1MigrationPath = path.resolve(process.cwd(), "drizzle/0000_m1_assets.sql");
+const m2MigrationPath = path.resolve(process.cwd(), "drizzle/0001_m2_asset_history.sql");
 const databaseUrl = process.env.DATABASE_URL;
 
 let pool: Pool | null = null;
@@ -14,11 +15,15 @@ async function loadSubject() {
   if (!databaseUrl) throw new Error("DATABASE_URL is required for PostgreSQL integration tests");
   const { PostgresAssetRepository } = await import(repositoryModulePath);
   pool = new Pool({ connectionString: databaseUrl });
-  const migration = await fs.readFile(migrationPath, "utf8");
+  const m1Migration = await fs.readFile(m1MigrationPath, "utf8");
+  const m2Migration = await fs.readFile(m2MigrationPath, "utf8");
 
+  await pool.query("DROP TABLE IF EXISTS asset_event_outbox");
+  await pool.query("DROP TABLE IF EXISTS asset_versions");
   await pool.query("DROP TABLE IF EXISTS asset_audit_log");
   await pool.query("DROP TABLE IF EXISTS assets");
-  await pool.query(migration);
+  await pool.query(m1Migration);
+  await pool.query(m2Migration);
 
   let id = 0;
   const repository = new PostgresAssetRepository(pool);
