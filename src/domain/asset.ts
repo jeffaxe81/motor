@@ -3,6 +3,11 @@ import { z } from "zod";
 const opaqueIdSchema = z.string().trim().min(1).max(128);
 const correlationIdSchema = z.string().trim().min(8).max(160);
 
+const assetChangeMetadataSchema = z.object({
+  reason: z.string().trim().min(1).max(200),
+  origin: z.string().trim().min(1).max(128),
+}).strict();
+
 export const assetCreateInputSchema = z.object({
   code: z.string().trim().min(1).max(100),
   name: z.string().trim().min(1).max(200),
@@ -18,6 +23,7 @@ export const assetUpdateInputSchema = z.object({
   assetType: z.string().trim().min(1).max(100).optional(),
   status: z.string().trim().min(1).max(64).optional(),
   technicalData: z.record(z.string(), z.unknown()).optional(),
+  change: assetChangeMetadataSchema.optional(),
 }).strict().refine(
   value => [value.code, value.name, value.assetType, value.status, value.technicalData]
     .some(field => field !== undefined),
@@ -58,6 +64,8 @@ export interface AssetAuditEntry {
   version: number;
   correlationId: string;
   occurredAt: Date;
+  reason: string;
+  origin: string;
 }
 
 export interface AssetVersionSnapshot {
