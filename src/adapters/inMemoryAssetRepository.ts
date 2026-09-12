@@ -1,6 +1,6 @@
 import type {
   Asset, AssetAuditEntry, AssetBounds, AssetDispatchReference, AssetEvidence, AssetInspection, AssetLocation,
-  AssetMaintenance, AssetRelation, AssetSearchInput, AssetSearchResult, AssetVersionSnapshot,
+  AssetMaintenance, AssetRelation, AssetSearchInput, AssetSearchResult, AssetTelemetry, AssetVersionSnapshot,
 } from "../domain/asset.js";
 import { codeConflictError } from "../domain/asset.js";
 import type { AssetRepository, AssetUpdateResult } from "../application/assetRepository.js";
@@ -8,6 +8,7 @@ import type { AssetRepository, AssetUpdateResult } from "../application/assetRep
 const assetKey = (tenantId: string, assetId: string) => `${tenantId}\u0000${assetId}`;
 const codeKey = (tenantId: string, code: string) => `${tenantId}\u0000${code}`;
 const dispatchKey = (tenantId: string, assetId: string, idempotencyKey: string) => `${tenantId}\u0000${assetId}\u0000${idempotencyKey}`;
+const telemetryKey = (tenantId: string, assetId: string, eventId: string) => `${tenantId}\u0000${assetId}\u0000${eventId}`;
 function cloneAsset(asset: Asset): Asset { return { ...asset, technicalData: structuredClone(asset.technicalData), createdAt: new Date(asset.createdAt), updatedAt: new Date(asset.updatedAt) }; }
 function cloneAudit(entry: AssetAuditEntry): AssetAuditEntry { return { ...entry, occurredAt: new Date(entry.occurredAt) }; }
 function cloneSnapshot(snapshot: AssetVersionSnapshot): AssetVersionSnapshot { return { ...snapshot, technicalData: structuredClone(snapshot.technicalData), changedAt: new Date(snapshot.changedAt) }; }
@@ -17,6 +18,7 @@ function cloneInspection(inspection: AssetInspection): AssetInspection { return 
 function cloneMaintenance(record: AssetMaintenance): AssetMaintenance { return { ...record, parts: structuredClone(record.parts), costs: structuredClone(record.costs), ...(record.warranty ? { warranty: structuredClone(record.warranty) } : {}), ...(record.links ? { links: structuredClone(record.links) } : {}), createdAt: new Date(record.createdAt) }; }
 function cloneRelation(relation: AssetRelation): AssetRelation { return { ...relation, createdAt: new Date(relation.createdAt) }; }
 function cloneDispatchReference(reference: AssetDispatchReference): AssetDispatchReference { return { ...reference, createdAt: new Date(reference.createdAt) }; }
+function cloneTelemetry(record: AssetTelemetry): AssetTelemetry { return { ...record, payload: structuredClone(record.payload), occurredAt: new Date(record.occurredAt), receivedAt: new Date(record.receivedAt) }; }
 function snapshotFor(asset: Asset, audit: AssetAuditEntry): AssetVersionSnapshot { return { tenantId: asset.tenantId, assetId: asset.id, version: asset.version, code: asset.code, name: asset.name, assetType: asset.assetType, status: asset.status, technicalData: structuredClone(asset.technicalData), changedAt: audit.occurredAt, changedBy: audit.actorUserId, reason: audit.reason, origin: audit.origin, correlationId: audit.correlationId }; }
 
 export class InMemoryAssetRepository implements AssetRepository {
@@ -31,6 +33,8 @@ export class InMemoryAssetRepository implements AssetRepository {
   private readonly relations = new Map<string, AssetRelation[]>();
   private readonly dispatchReferences = new Map<string, AssetDispatchReference[]>();
   private readonly dispatchIdempotency = new Map<string, AssetDispatchReference>();
+  private readonly telemetry = new Map<string, AssetTelemetry[]>();
+  private readonly telemetryIdempotency = new Map<string, AssetTelemetry>();
   async findById(tenantId: string, assetId: string): Promise<Asset | null> { const asset = this.assets.get(assetKey(tenantId, assetId)); return asset ? cloneAsset(asset) : null; }
   async findByCode(tenantId: string, code: string): Promise<Asset | null> { const id = this.codes.get(codeKey(tenantId, code)); return id ? this.findById(tenantId, id) : null; }
   async search(tenantId: string, input: AssetSearchInput): Promise<AssetSearchResult> { const query = input.query?.toLocaleLowerCase(); const filtered = [...this.assets.values()].filter(asset => asset.tenantId === tenantId).filter(asset => !input.assetType || asset.assetType === input.assetType).filter(asset => !input.status || asset.status === input.status).filter(asset => !query || [asset.code, asset.name, asset.assetType, asset.status, JSON.stringify(asset.technicalData)].some(value => value.toLocaleLowerCase().includes(query))).sort((a,b)=>a.code.localeCompare(b.code)||a.id.localeCompare(b.id)); const total=filtered.length; const offset=(input.page-1)*input.pageSize; return {items:filtered.slice(offset,offset+input.pageSize).map(cloneAsset),page:input.page,pageSize:input.pageSize,total,totalPages:total===0?0:Math.ceil(total/input.pageSize)}; }
@@ -46,6 +50,9 @@ export class InMemoryAssetRepository implements AssetRepository {
   async addDispatchReference(reference: AssetDispatchReference): Promise<AssetDispatchReference> { const idem=dispatchKey(reference.tenantId,reference.assetId,reference.idempotencyKey); const existing=this.dispatchIdempotency.get(idem); if(existing)return cloneDispatchReference(existing); const key=assetKey(reference.tenantId,reference.assetId); const stored=cloneDispatchReference(reference); const items=this.dispatchReferences.get(key)??[]; items.push(stored); this.dispatchReferences.set(key,items); this.dispatchIdempotency.set(idem,stored); return cloneDispatchReference(stored); }
   async findDispatchReferenceByIdempotencyKey(tenantId:string,assetId:string,idempotencyKey:string):Promise<AssetDispatchReference|null>{const found=this.dispatchIdempotency.get(dispatchKey(tenantId,assetId,idempotencyKey));return found?cloneDispatchReference(found):null;}
   async listDispatchReferences(tenantId:string,assetId:string):Promise<AssetDispatchReference[]>{return(this.dispatchReferences.get(assetKey(tenantId,assetId))??[]).map(cloneDispatchReference).sort((a,b)=>a.createdAt.getTime()-b.createdAt.getTime()||a.id.localeCompare(b.id));}
+  async addTelemetry(record:AssetTelemetry):Promise<AssetTelemetry>{const idem=telemetryKey(record.tenantId,record.assetId,record.eventId);const existing=this.telemetryIdempotency.get(idem);if(existing)return cloneTelemetry(existing);const key=assetKey(record.tenantId,record.assetId);const stored=cloneTelemetry(record);const items=this.telemetry.get(key)??[];items.push(stored);this.telemetry.set(key,items);this.telemetryIdempotency.set(idem,stored);return cloneTelemetry(stored);}
+  async findTelemetryByEventId(tenantId:string,assetId:string,eventId:string):Promise<AssetTelemetry|null>{const found=this.telemetryIdempotency.get(telemetryKey(tenantId,assetId,eventId));return found?cloneTelemetry(found):null;}
+  async listTelemetry(tenantId:string,assetId:string):Promise<AssetTelemetry[]>{return(this.telemetry.get(assetKey(tenantId,assetId))??[]).map(cloneTelemetry).sort((a,b)=>a.occurredAt.getTime()-b.occurredAt.getTime()||a.eventId.localeCompare(b.eventId));}
   async setLocation(location: AssetLocation): Promise<AssetLocation> { const stored=cloneLocation(location); this.locations.set(assetKey(location.tenantId,location.assetId),stored); return cloneLocation(stored); }
   async findLocation(tenantId: string, assetId: string): Promise<AssetLocation | null> { const location=this.locations.get(assetKey(tenantId,assetId)); return location?cloneLocation(location):null; }
   async findLocationsByBounds(tenantId: string,bounds:AssetBounds):Promise<AssetLocation[]>{return [...this.locations.values()].filter(l=>l.tenantId===tenantId&&l.latitude>=bounds.minLatitude&&l.latitude<=bounds.maxLatitude&&l.longitude>=bounds.minLongitude&&l.longitude<=bounds.maxLongitude).sort((a,b)=>a.assetId.localeCompare(b.assetId)).map(cloneLocation);}
