@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, lte } from "drizzle-orm";
+import { and, asc, count, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
 import type {
@@ -6,6 +6,8 @@ import type {
   AssetAuditEntry,
   AssetBounds,
   AssetLocation,
+  AssetSearchInput,
+  AssetSearchResult,
   AssetVersionSnapshot,
 } from "../domain/asset.js";
 import { codeConflictError } from "../domain/asset.js";
@@ -78,10 +80,7 @@ function auditValues(audit: AssetAuditEntry): typeof assetAuditLog.$inferInsert 
   };
 }
 
-function versionValues(
-  asset: Asset,
-  audit: AssetAuditEntry,
-): typeof assetVersions.$inferInsert {
+function versionValues(asset: Asset, audit: AssetAuditEntry): typeof assetVersions.$inferInsert {
   return {
     tenantId: asset.tenantId,
     assetId: asset.id,
@@ -99,10 +98,7 @@ function versionValues(
   };
 }
 
-function outboxValues(
-  asset: Asset,
-  audit: AssetAuditEntry,
-): typeof assetEventOutbox.$inferInsert {
+function outboxValues(asset: Asset, audit: AssetAuditEntry): typeof assetEventOutbox.$inferInsert {
   const eventType = audit.action === "created" ? "asset.created" : "asset.updated";
   return {
     eventId: `asset:${asset.tenantId}:${asset.id}:v${asset.version}:${eventType}`,
@@ -138,77 +134,86 @@ export class PostgresAssetRepository implements AssetRepository {
   }
 
   async findById(tenantId: string, assetId: string): Promise<Asset | null> {
-    const rows = await this.db
-      .select()
-      .from(assets)
-      .where(and(eq(assets.tenantId, tenantId), eq(assets.id, assetId)))
-      .limit(1);
-    const row = rows[0];
-    return row ? toAsset(row) : null;
+    const rows = await this.db.select().from(assets)
+      .where(and(eq(assets.tenantId, tenantId), eq(assets.id, assetId))).limit(1);
+    return rows[0] ? toAsset(rows[0]) : null;
   }
 
   async findByCode(tenantId: string, code: string): Promise<Asset | null> {
-    const rows = await this.db
-      .select()
-      .from(assets)
-      .where(and(eq(assets.tenantId, tenantId), eq(assets.code, code)))
-      .limit(1);
-    const row = rows[0];
-    return row ? toAsset(row) : null;
+    const rows = await this.db.select().from(assets)
+      .where(and(eq(assets.tenantId, tenantId), eq(assets.code, code))).limit(1);
+    return rows[0] ? toAsset(rows[0]) : null;
+  }
+
+  async search(tenantId: string, input: AssetSearchInput): Promise<AssetSearchResult> {
+    const conditions = [eq(assets.tenantId, tenantId)];
+    if (input.assetType) conditions.push(eq(assets.assetType, input.assetType));
+    if (input.status) conditions.push(eq(assets.status, input.status));
+    if (input.query) {
+      const pattern = `%${input.query}%`;
+      const textMatch = or(
+        ilike(assets.code, pattern),
+        ilike(assets.name, pattern),
+        ilike(assets.assetType, pattern),
+        ilike(assets.status, pattern),
+        sql`${assets.technicalData}::text ILIKE ${pattern}`,
+      );
+      if (textMatch) conditions.push(textMatch);
+    }
+    const where = and(...conditions);
+    const [{ value: totalValue }] = await this.db.select({ value: count() }).from(assets).where(where);
+    const total = Number(totalValue ?? 0);
+    const rows = await this.db.select().from(assets)
+      .where(where)
+      .orderBy(asc(assets.code), asc(assets.id))
+      .limit(input.pageSize)
+      .offset((input.page - 1) * input.pageSize);
+    return {
+      items: rows.map(toAsset),
+      page: input.page,
+      pageSize: input.pageSize,
+      total,
+      totalPages: total === 0 ? 0 : Math.ceil(total / input.pageSize),
+    };
   }
 
   async listHistory(tenantId: string, assetId: string): Promise<AssetVersionSnapshot[]> {
-    const rows = await this.db
-      .select()
-      .from(assetVersions)
+    const rows = await this.db.select().from(assetVersions)
       .where(and(eq(assetVersions.tenantId, tenantId), eq(assetVersions.assetId, assetId)))
       .orderBy(asc(assetVersions.version));
     return rows.map(toSnapshot);
   }
 
   async setLocation(location: AssetLocation): Promise<AssetLocation> {
-    const rows = await this.db
-      .insert(assetLocations)
-      .values(location)
-      .onConflictDoUpdate({
-        target: [assetLocations.tenantId, assetLocations.assetId],
-        set: {
-          latitude: location.latitude,
-          longitude: location.longitude,
-          source: location.source,
-          updatedAt: location.updatedAt,
-          updatedBy: location.updatedBy,
-          correlationId: location.correlationId,
-        },
-      })
-      .returning();
-    const row = rows[0];
-    if (!row) throw new Error("Asset location upsert returned no row");
-    return toLocation(row);
+    const rows = await this.db.insert(assetLocations).values(location).onConflictDoUpdate({
+      target: [assetLocations.tenantId, assetLocations.assetId],
+      set: {
+        latitude: location.latitude,
+        longitude: location.longitude,
+        source: location.source,
+        updatedAt: location.updatedAt,
+        updatedBy: location.updatedBy,
+        correlationId: location.correlationId,
+      },
+    }).returning();
+    if (!rows[0]) throw new Error("Asset location upsert returned no row");
+    return toLocation(rows[0]);
   }
 
   async findLocation(tenantId: string, assetId: string): Promise<AssetLocation | null> {
-    const rows = await this.db
-      .select()
-      .from(assetLocations)
-      .where(and(eq(assetLocations.tenantId, tenantId), eq(assetLocations.assetId, assetId)))
-      .limit(1);
-    const row = rows[0];
-    return row ? toLocation(row) : null;
+    const rows = await this.db.select().from(assetLocations)
+      .where(and(eq(assetLocations.tenantId, tenantId), eq(assetLocations.assetId, assetId))).limit(1);
+    return rows[0] ? toLocation(rows[0]) : null;
   }
 
   async findLocationsByBounds(tenantId: string, bounds: AssetBounds): Promise<AssetLocation[]> {
-    const rows = await this.db
-      .select()
-      .from(assetLocations)
-      .where(and(
-        eq(assetLocations.tenantId, tenantId),
-        gte(assetLocations.latitude, bounds.minLatitude),
-        lte(assetLocations.latitude, bounds.maxLatitude),
-        gte(assetLocations.longitude, bounds.minLongitude),
-        lte(assetLocations.longitude, bounds.maxLongitude),
-      ))
-      .orderBy(asc(assetLocations.assetId));
+    const rows = await this.db.select().from(assetLocations).where(and(
+      eq(assetLocations.tenantId, tenantId),
+      gte(assetLocations.latitude, bounds.minLatitude),
+      lte(assetLocations.latitude, bounds.maxLatitude),
+      gte(assetLocations.longitude, bounds.minLongitude),
+      lte(assetLocations.longitude, bounds.maxLongitude),
+    )).orderBy(asc(assetLocations.assetId));
     return rows.map(toLocation);
   }
 
@@ -216,27 +221,16 @@ export class PostgresAssetRepository implements AssetRepository {
     try {
       return await this.db.transaction(async tx => {
         const rows = await tx.insert(assets).values({
-          id: asset.id,
-          tenantId: asset.tenantId,
-          code: asset.code,
-          name: asset.name,
-          assetType: asset.assetType,
-          status: asset.status,
-          technicalData: asset.technicalData,
-          version: asset.version,
-          createdAt: asset.createdAt,
-          createdBy: asset.createdBy,
-          updatedAt: asset.updatedAt,
-          updatedBy: asset.updatedBy,
+          id: asset.id, tenantId: asset.tenantId, code: asset.code, name: asset.name,
+          assetType: asset.assetType, status: asset.status, technicalData: asset.technicalData,
+          version: asset.version, createdAt: asset.createdAt, createdBy: asset.createdBy,
+          updatedAt: asset.updatedAt, updatedBy: asset.updatedBy,
         }).returning();
-
-        const row = rows[0];
-        if (!row) throw new Error("Asset insert returned no row");
-
+        if (!rows[0]) throw new Error("Asset insert returned no row");
         await tx.insert(assetAuditLog).values(auditValues(audit));
         await tx.insert(assetVersions).values(versionValues(asset, audit));
         await tx.insert(assetEventOutbox).values(outboxValues(asset, audit));
-        return toAsset(row);
+        return toAsset(rows[0]);
       });
     } catch (error) {
       if (isTenantCodeConflict(error)) throw codeConflictError();
@@ -244,47 +238,20 @@ export class PostgresAssetRepository implements AssetRepository {
     }
   }
 
-  async update(
-    tenantId: string,
-    assetId: string,
-    expectedVersion: number,
-    nextAsset: Asset,
-    audit: AssetAuditEntry,
-  ): Promise<AssetUpdateResult> {
+  async update(tenantId: string, assetId: string, expectedVersion: number, nextAsset: Asset, audit: AssetAuditEntry): Promise<AssetUpdateResult> {
     try {
       return await this.db.transaction(async tx => {
-        const rows = await tx
-          .update(assets)
-          .set({
-            code: nextAsset.code,
-            name: nextAsset.name,
-            assetType: nextAsset.assetType,
-            status: nextAsset.status,
-            technicalData: nextAsset.technicalData,
-            version: nextAsset.version,
-            updatedAt: nextAsset.updatedAt,
-            updatedBy: nextAsset.updatedBy,
-          })
-          .where(and(
-            eq(assets.tenantId, tenantId),
-            eq(assets.id, assetId),
-            eq(assets.version, expectedVersion),
-          ))
-          .returning();
-
-        const updated = rows[0];
-        if (!updated) {
-          const current = await tx
-            .select({ version: assets.version })
-            .from(assets)
-            .where(and(eq(assets.tenantId, tenantId), eq(assets.id, assetId)))
-            .limit(1);
-          return current[0]
-            ? { status: "version_conflict" as const }
-            : { status: "not_found" as const };
+        const rows = await tx.update(assets).set({
+          code: nextAsset.code, name: nextAsset.name, assetType: nextAsset.assetType,
+          status: nextAsset.status, technicalData: nextAsset.technicalData, version: nextAsset.version,
+          updatedAt: nextAsset.updatedAt, updatedBy: nextAsset.updatedBy,
+        }).where(and(eq(assets.tenantId, tenantId), eq(assets.id, assetId), eq(assets.version, expectedVersion))).returning();
+        if (!rows[0]) {
+          const current = await tx.select({ version: assets.version }).from(assets)
+            .where(and(eq(assets.tenantId, tenantId), eq(assets.id, assetId))).limit(1);
+          return current[0] ? { status: "version_conflict" as const } : { status: "not_found" as const };
         }
-
-        const persisted = toAsset(updated);
+        const persisted = toAsset(rows[0]);
         await tx.insert(assetAuditLog).values(auditValues(audit));
         await tx.insert(assetVersions).values(versionValues(persisted, audit));
         await tx.insert(assetEventOutbox).values(outboxValues(persisted, audit));
