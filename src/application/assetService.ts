@@ -21,6 +21,7 @@ import {
   type AssetRequestContext,
   type AssetSearchInput,
   type AssetSearchResult,
+  type AssetTimelineItem,
   type AssetUpdateInput,
   type AssetVersionChange,
   type AssetVersionComparison,
@@ -37,6 +38,28 @@ const comparableFields = ["code", "name", "assetType", "status", "technicalData"
 
 function sameValue(left: unknown, right: unknown): boolean {
   return JSON.stringify(left) === JSON.stringify(right);
+}
+
+function timelineItemFrom(snapshot: AssetVersionSnapshot): AssetTimelineItem {
+  return {
+    id: `asset:${snapshot.assetId}:v${snapshot.version}`,
+    tenantId: snapshot.tenantId,
+    assetId: snapshot.assetId,
+    type: snapshot.version === 1 ? "asset.created" : "asset.updated",
+    occurredAt: new Date(snapshot.changedAt),
+    authorUserId: snapshot.changedBy,
+    source: snapshot.origin,
+    reason: snapshot.reason,
+    correlationId: snapshot.correlationId,
+    version: snapshot.version,
+    data: {
+      code: snapshot.code,
+      name: snapshot.name,
+      assetType: snapshot.assetType,
+      status: snapshot.status,
+      technicalData: structuredClone(snapshot.technicalData),
+    },
+  };
 }
 
 export class AssetService {
@@ -83,6 +106,16 @@ export class AssetService {
     const asset = await this.repository.findById(context.tenantId, assetId);
     if (!asset) throw notFoundError();
     return this.repository.listHistory(context.tenantId, assetId);
+  }
+
+  async timeline(contextInput: unknown, assetId: string): Promise<AssetTimelineItem[]> {
+    const history = await this.history(contextInput, assetId);
+    return history
+      .map(timelineItemFrom)
+      .sort((left, right) => {
+        const byTime = left.occurredAt.getTime() - right.occurredAt.getTime();
+        return byTime !== 0 ? byTime : left.version - right.version;
+      });
   }
 
   async compare(contextInput: unknown, assetId: string, fromVersion: number, toVersion: number): Promise<AssetVersionComparison> {
