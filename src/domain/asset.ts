@@ -130,6 +130,26 @@ export interface AssetVersionSnapshot {
   correlationId: string;
 }
 
+export interface AssetTimelineItem {
+  id: string;
+  tenantId: string;
+  assetId: string;
+  type: "asset.created" | "asset.updated";
+  occurredAt: Date;
+  authorUserId: string;
+  source: string;
+  reason: string;
+  correlationId: string;
+  version: number;
+  data: {
+    code: string;
+    name: string;
+    assetType: string;
+    status: string;
+    technicalData: Record<string, unknown>;
+  };
+}
+
 export interface AssetVersionChange {
   field: "code" | "name" | "assetType" | "status" | "technicalData";
   before: unknown;
