@@ -126,4 +126,20 @@ suite("M1 PostgresAssetRepository", () => {
       },
     ]);
   });
+
+  it("prevents deleting an asset while its audit trail exists", async () => {
+    const { service } = await loadSubject();
+    const created = await service.create(context("tenant-a"), registration);
+
+    await expect(pool!.query(
+      "DELETE FROM assets WHERE tenant_id = $1 AND id = $2",
+      ["tenant-a", created.id],
+    )).rejects.toMatchObject({ code: "23503" });
+
+    const persisted = await pool!.query(
+      "SELECT id FROM assets WHERE tenant_id = $1 AND id = $2",
+      ["tenant-a", created.id],
+    );
+    expect(persisted.rowCount).toBe(1);
+  });
 });
