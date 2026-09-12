@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { ZodError } from "zod";
 import {
+  assetBoundsSchema,
   assetCreateInputSchema,
+  assetLocationInputSchema,
   assetRequestContextSchema,
   assetUpdateInputSchema,
   codeConflictError,
@@ -11,7 +13,10 @@ import {
   versionConflictError,
   type Asset,
   type AssetAuditEntry,
+  type AssetBounds,
   type AssetCreateInput,
+  type AssetLocation,
+  type AssetLocationInput,
   type AssetRequestContext,
   type AssetUpdateInput,
   type AssetVersionChange,
@@ -132,6 +137,44 @@ export class AssetService {
     return { fromVersion, toVersion, changes };
   }
 
+  async setLocation(contextInput: unknown, assetId: string, input: unknown): Promise<AssetLocation> {
+    const context = this.parseContext(contextInput);
+    this.requirePermission(context, "assets:write");
+    const parsed = this.parseLocation(input);
+
+    const asset = await this.repository.findById(context.tenantId, assetId);
+    if (!asset) throw notFoundError();
+
+    return this.repository.setLocation({
+      tenantId: context.tenantId,
+      assetId,
+      latitude: parsed.latitude,
+      longitude: parsed.longitude,
+      source: parsed.source,
+      updatedAt: this.now(),
+      updatedBy: context.userId,
+      correlationId: context.correlationId,
+    });
+  }
+
+  async getLocation(contextInput: unknown, assetId: string): Promise<AssetLocation> {
+    const context = this.parseContext(contextInput);
+    this.requirePermission(context, "assets:read");
+
+    const asset = await this.repository.findById(context.tenantId, assetId);
+    if (!asset) throw notFoundError();
+    const location = await this.repository.findLocation(context.tenantId, assetId);
+    if (!location) throw notFoundError();
+    return location;
+  }
+
+  async searchByBounds(contextInput: unknown, boundsInput: unknown): Promise<AssetLocation[]> {
+    const context = this.parseContext(contextInput);
+    this.requirePermission(context, "assets:read");
+    const bounds = this.parseBounds(boundsInput);
+    return this.repository.findLocationsByBounds(context.tenantId, bounds);
+  }
+
   async update(contextInput: unknown, assetId: string, input: unknown): Promise<Asset> {
     const context = this.parseContext(contextInput);
     this.requirePermission(context, "assets:write");
@@ -202,6 +245,24 @@ export class AssetService {
   private parseUpdate(input: unknown): AssetUpdateInput {
     try {
       return assetUpdateInputSchema.parse(input);
+    } catch (error) {
+      if (error instanceof ZodError) throw validationError();
+      throw error;
+    }
+  }
+
+  private parseLocation(input: unknown): AssetLocationInput {
+    try {
+      return assetLocationInputSchema.parse(input);
+    } catch (error) {
+      if (error instanceof ZodError) throw validationError();
+      throw error;
+    }
+  }
+
+  private parseBounds(input: unknown): AssetBounds {
+    try {
+      return assetBoundsSchema.parse(input);
     } catch (error) {
       if (error instanceof ZodError) throw validationError();
       throw error;

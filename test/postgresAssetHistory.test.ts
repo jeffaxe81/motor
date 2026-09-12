@@ -26,6 +26,7 @@ async function loadSubject() {
   const { PostgresAssetRepository } = await import(repositoryModulePath);
   pool = new Pool({ connectionString: databaseUrl });
 
+  await pool.query("DROP TABLE IF EXISTS asset_locations");
   await pool.query("DROP TABLE IF EXISTS asset_event_outbox");
   await pool.query("DROP TABLE IF EXISTS asset_versions");
   await pool.query("DROP TABLE IF EXISTS asset_audit_log");

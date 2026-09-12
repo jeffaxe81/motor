@@ -1,4 +1,5 @@
 import {
+  doublePrecision,
   foreignKey,
   index,
   integer,
@@ -127,5 +128,28 @@ export const assetEventOutbox = pgTable(
       table.assetId,
       table.assetVersion,
     ),
+  ],
+);
+
+export const assetLocations = pgTable(
+  "asset_locations",
+  {
+    tenantId: varchar("tenant_id", { length: 128 }).notNull(),
+    assetId: uuid("asset_id").notNull(),
+    latitude: doublePrecision("latitude").notNull(),
+    longitude: doublePrecision("longitude").notNull(),
+    source: varchar("source", { length: 128 }).notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "date" }).notNull(),
+    updatedBy: varchar("updated_by", { length: 128 }).notNull(),
+    correlationId: varchar("correlation_id", { length: 160 }).notNull(),
+  },
+  table => [
+    unique("asset_locations_tenant_asset_unique").on(table.tenantId, table.assetId),
+    foreignKey({
+      name: "asset_locations_asset_tenant_fk",
+      columns: [table.assetId, table.tenantId],
+      foreignColumns: [assets.id, assets.tenantId],
+    }).onDelete("restrict"),
+    index("asset_locations_tenant_geo_idx").on(table.tenantId, table.latitude, table.longitude),
   ],
 );

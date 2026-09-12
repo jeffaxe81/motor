@@ -18,6 +18,7 @@ async function loadSubject() {
   const m1Migration = await fs.readFile(m1MigrationPath, "utf8");
   const m2Migration = await fs.readFile(m2MigrationPath, "utf8");
 
+  await pool.query("DROP TABLE IF EXISTS asset_locations");
   await pool.query("DROP TABLE IF EXISTS asset_event_outbox");
   await pool.query("DROP TABLE IF EXISTS asset_versions");
   await pool.query("DROP TABLE IF EXISTS asset_audit_log");
