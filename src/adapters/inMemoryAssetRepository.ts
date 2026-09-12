@@ -38,8 +38,8 @@ function snapshotFor(asset: Asset, audit: AssetAuditEntry): AssetVersionSnapshot
     technicalData: structuredClone(asset.technicalData),
     changedAt: audit.occurredAt,
     changedBy: audit.actorUserId,
-    reason: audit.action === "created" ? "initial-registration" : "technical-update",
-    origin: "api",
+    reason: audit.reason,
+    origin: audit.origin,
     correlationId: audit.correlationId,
   };
 }
