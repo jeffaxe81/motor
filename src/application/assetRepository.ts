@@ -3,6 +3,7 @@ import type {
   AssetAuditEntry,
   AssetBounds,
   AssetEvidence,
+  AssetInspection,
   AssetLocation,
   AssetSearchInput,
   AssetSearchResult,
@@ -22,6 +23,8 @@ export interface AssetRepository {
   listHistory(tenantId: string, assetId: string): Promise<AssetVersionSnapshot[]>;
   addEvidence(evidence: AssetEvidence): Promise<AssetEvidence>;
   listEvidence(tenantId: string, assetId: string): Promise<AssetEvidence[]>;
+  addInspection(inspection: AssetInspection): Promise<AssetInspection>;
+  listInspections(tenantId: string, assetId: string): Promise<AssetInspection[]>;
   setLocation(location: AssetLocation): Promise<AssetLocation>;
   findLocation(tenantId: string, assetId: string): Promise<AssetLocation | null>;
   findLocationsByBounds(tenantId: string, bounds: AssetBounds): Promise<AssetLocation[]>;
