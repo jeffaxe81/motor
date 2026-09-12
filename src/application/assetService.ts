@@ -14,12 +14,27 @@ import {
   type AssetCreateInput,
   type AssetRequestContext,
   type AssetUpdateInput,
+  type AssetVersionChange,
+  type AssetVersionComparison,
+  type AssetVersionSnapshot,
 } from "../domain/asset.js";
 import type { AssetRepository } from "./assetRepository.js";
 
 export interface AssetServiceDependencies {
   now?: () => Date;
   generateId?: () => string;
+}
+
+const comparableFields = [
+  "code",
+  "name",
+  "assetType",
+  "status",
+  "technicalData",
+] as const;
+
+function sameValue(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 export class AssetService {
@@ -59,7 +74,14 @@ export class AssetService {
       updatedBy: context.userId,
     };
 
-    const audit = this.auditFor(asset, context, "created", now);
+    const audit = this.auditFor(
+      asset,
+      context,
+      "created",
+      now,
+      "initial-registration",
+      "api",
+    );
     return this.repository.create(asset, audit);
   }
 
@@ -70,6 +92,44 @@ export class AssetService {
     const asset = await this.repository.findById(context.tenantId, assetId);
     if (!asset) throw notFoundError();
     return asset;
+  }
+
+  async history(contextInput: unknown, assetId: string): Promise<AssetVersionSnapshot[]> {
+    const context = this.parseContext(contextInput);
+    this.requirePermission(context, "assets:read");
+
+    const asset = await this.repository.findById(context.tenantId, assetId);
+    if (!asset) throw notFoundError();
+    return this.repository.listHistory(context.tenantId, assetId);
+  }
+
+  async compare(
+    contextInput: unknown,
+    assetId: string,
+    fromVersion: number,
+    toVersion: number,
+  ): Promise<AssetVersionComparison> {
+    if (!Number.isInteger(fromVersion) || fromVersion <= 0 || !Number.isInteger(toVersion) || toVersion <= 0) {
+      throw validationError();
+    }
+
+    const history = await this.history(contextInput, assetId);
+    const from = history.find(snapshot => snapshot.version === fromVersion);
+    const to = history.find(snapshot => snapshot.version === toVersion);
+    if (!from || !to) throw notFoundError();
+
+    const changes: AssetVersionChange[] = [];
+    for (const field of comparableFields) {
+      if (!sameValue(from[field], to[field])) {
+        changes.push({
+          field,
+          before: structuredClone(from[field]),
+          after: structuredClone(to[field]),
+        });
+      }
+    }
+
+    return { fromVersion, toVersion, changes };
   }
 
   async update(contextInput: unknown, assetId: string, input: unknown): Promise<Asset> {
@@ -105,7 +165,14 @@ export class AssetService {
       assetId,
       parsed.expectedVersion,
       next,
-      this.auditFor(next, context, "updated", now),
+      this.auditFor(
+        next,
+        context,
+        "updated",
+        now,
+        parsed.change?.reason ?? "technical-update",
+        parsed.change?.origin ?? "api",
+      ),
     );
 
     if (result.status === "not_found") throw notFoundError();
@@ -150,6 +217,8 @@ export class AssetService {
     context: AssetRequestContext,
     action: AssetAuditEntry["action"],
     occurredAt: Date,
+    reason: string,
+    origin: string,
   ): AssetAuditEntry {
     return {
       tenantId: context.tenantId,
@@ -159,6 +228,8 @@ export class AssetService {
       version: asset.version,
       correlationId: context.correlationId,
       occurredAt,
+      reason,
+      origin,
     };
   }
 }

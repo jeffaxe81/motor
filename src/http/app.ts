@@ -55,6 +55,22 @@ export function buildAssetApp(options: BuildAssetAppOptions) {
     return reply.status(201).send(asset);
   });
 
+  app.get("/api/v1/assets/:id/history", async request => {
+    const context = await options.resolveContext(request);
+    const { id } = request.params as { id: string };
+    return service.history(context, id);
+  });
+
+  app.get("/api/v1/assets/:id/compare", async request => {
+    const context = await options.resolveContext(request);
+    const { id } = request.params as { id: string };
+    const { fromVersion, toVersion } = request.query as {
+      fromVersion?: string;
+      toVersion?: string;
+    };
+    return service.compare(context, id, Number(fromVersion), Number(toVersion));
+  });
+
   app.get("/api/v1/assets/:id", async request => {
     const context = await options.resolveContext(request);
     const { id } = request.params as { id: string };

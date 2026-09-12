@@ -1,4 +1,4 @@
-import type { Asset, AssetAuditEntry } from "../domain/asset.js";
+import type { Asset, AssetAuditEntry, AssetVersionSnapshot } from "../domain/asset.js";
 import { codeConflictError } from "../domain/asset.js";
 import type { AssetRepository, AssetUpdateResult } from "../application/assetRepository.js";
 
@@ -18,10 +18,37 @@ function cloneAudit(entry: AssetAuditEntry): AssetAuditEntry {
   return { ...entry, occurredAt: new Date(entry.occurredAt) };
 }
 
+function cloneSnapshot(snapshot: AssetVersionSnapshot): AssetVersionSnapshot {
+  return {
+    ...snapshot,
+    technicalData: structuredClone(snapshot.technicalData),
+    changedAt: new Date(snapshot.changedAt),
+  };
+}
+
+function snapshotFor(asset: Asset, audit: AssetAuditEntry): AssetVersionSnapshot {
+  return {
+    tenantId: asset.tenantId,
+    assetId: asset.id,
+    version: asset.version,
+    code: asset.code,
+    name: asset.name,
+    assetType: asset.assetType,
+    status: asset.status,
+    technicalData: structuredClone(asset.technicalData),
+    changedAt: audit.occurredAt,
+    changedBy: audit.actorUserId,
+    reason: audit.reason,
+    origin: audit.origin,
+    correlationId: audit.correlationId,
+  };
+}
+
 export class InMemoryAssetRepository implements AssetRepository {
   private readonly assets = new Map<string, Asset>();
   private readonly codes = new Map<string, string>();
   private readonly audit: AssetAuditEntry[] = [];
+  private readonly versions = new Map<string, AssetVersionSnapshot[]>();
 
   async findById(tenantId: string, assetId: string): Promise<Asset | null> {
     const asset = this.assets.get(assetKey(tenantId, assetId));
@@ -33,14 +60,20 @@ export class InMemoryAssetRepository implements AssetRepository {
     return id ? this.findById(tenantId, id) : null;
   }
 
+  async listHistory(tenantId: string, assetId: string): Promise<AssetVersionSnapshot[]> {
+    return (this.versions.get(assetKey(tenantId, assetId)) ?? []).map(cloneSnapshot);
+  }
+
   async create(asset: Asset, audit: AssetAuditEntry): Promise<Asset> {
     const index = codeKey(asset.tenantId, asset.code);
     if (this.codes.has(index)) throw codeConflictError();
 
     const stored = cloneAsset(asset);
-    this.assets.set(assetKey(asset.tenantId, asset.id), stored);
+    const key = assetKey(asset.tenantId, asset.id);
+    this.assets.set(key, stored);
     this.codes.set(index, asset.id);
     this.audit.push(cloneAudit(audit));
+    this.versions.set(key, [snapshotFor(stored, audit)]);
     return cloneAsset(stored);
   }
 
@@ -68,6 +101,9 @@ export class InMemoryAssetRepository implements AssetRepository {
     const stored = cloneAsset(nextAsset);
     this.assets.set(key, stored);
     this.audit.push(cloneAudit(audit));
+    const history = this.versions.get(key) ?? [];
+    history.push(snapshotFor(stored, audit));
+    this.versions.set(key, history);
     return { status: "updated", asset: cloneAsset(stored) };
   }
 

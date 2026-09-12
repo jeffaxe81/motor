@@ -55,3 +55,77 @@ export const assetAuditLog = pgTable(
     index("asset_audit_tenant_asset_idx").on(table.tenantId, table.assetId, table.occurredAt),
   ],
 );
+
+export const assetVersions = pgTable(
+  "asset_versions",
+  {
+    id: serial("id").primaryKey(),
+    tenantId: varchar("tenant_id", { length: 128 }).notNull(),
+    assetId: uuid("asset_id").notNull(),
+    version: integer("version").notNull(),
+    code: varchar("code", { length: 100 }).notNull(),
+    name: varchar("name", { length: 200 }).notNull(),
+    assetType: varchar("asset_type", { length: 100 }).notNull(),
+    status: varchar("status", { length: 64 }).notNull(),
+    technicalData: jsonb("technical_data").$type<Record<string, unknown>>().notNull(),
+    changedAt: timestamp("changed_at", { withTimezone: true, mode: "date" }).notNull(),
+    changedBy: varchar("changed_by", { length: 128 }).notNull(),
+    reason: varchar("reason", { length: 200 }).notNull(),
+    origin: varchar("origin", { length: 128 }).notNull(),
+    correlationId: varchar("correlation_id", { length: 160 }).notNull(),
+  },
+  table => [
+    unique("asset_versions_tenant_asset_version_unique").on(
+      table.tenantId,
+      table.assetId,
+      table.version,
+    ),
+    foreignKey({
+      name: "asset_versions_asset_tenant_fk",
+      columns: [table.assetId, table.tenantId],
+      foreignColumns: [assets.id, assets.tenantId],
+    }).onDelete("restrict"),
+    index("asset_versions_tenant_asset_version_idx").on(
+      table.tenantId,
+      table.assetId,
+      table.version,
+    ),
+  ],
+);
+
+export const assetEventOutbox = pgTable(
+  "asset_event_outbox",
+  {
+    id: serial("id").primaryKey(),
+    eventId: varchar("event_id", { length: 300 }).notNull(),
+    eventType: varchar("event_type", { length: 64 }).notNull(),
+    eventVersion: varchar("event_version", { length: 16 }).notNull(),
+    tenantId: varchar("tenant_id", { length: 128 }).notNull(),
+    assetId: uuid("asset_id").notNull(),
+    assetVersion: integer("asset_version").notNull(),
+    correlationId: varchar("correlation_id", { length: 160 }).notNull(),
+    occurredAt: timestamp("occurred_at", { withTimezone: true, mode: "date" }).notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    publishedAt: timestamp("published_at", { withTimezone: true, mode: "date" }),
+  },
+  table => [
+    unique("asset_event_outbox_event_id_unique").on(table.eventId),
+    unique("asset_event_outbox_asset_event_unique").on(
+      table.tenantId,
+      table.assetId,
+      table.assetVersion,
+      table.eventType,
+    ),
+    foreignKey({
+      name: "asset_event_outbox_asset_tenant_fk",
+      columns: [table.assetId, table.tenantId],
+      foreignColumns: [assets.id, assets.tenantId],
+    }).onDelete("restrict"),
+    index("asset_event_outbox_pending_idx").on(table.publishedAt, table.id),
+    index("asset_event_outbox_tenant_asset_idx").on(
+      table.tenantId,
+      table.assetId,
+      table.assetVersion,
+    ),
+  ],
+);

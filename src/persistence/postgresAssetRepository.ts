@@ -1,10 +1,10 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
-import type { Asset, AssetAuditEntry } from "../domain/asset.js";
+import type { Asset, AssetAuditEntry, AssetVersionSnapshot } from "../domain/asset.js";
 import { codeConflictError } from "../domain/asset.js";
 import type { AssetRepository, AssetUpdateResult } from "../application/assetRepository.js";
-import { assetAuditLog, assets } from "./schema.js";
+import { assetAuditLog, assetEventOutbox, assetVersions, assets } from "./schema.js";
 
 function isTenantCodeConflict(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -29,6 +29,24 @@ function toAsset(row: typeof assets.$inferSelect): Asset {
   };
 }
 
+function toSnapshot(row: typeof assetVersions.$inferSelect): AssetVersionSnapshot {
+  return {
+    tenantId: row.tenantId,
+    assetId: row.assetId,
+    version: row.version,
+    code: row.code,
+    name: row.name,
+    assetType: row.assetType,
+    status: row.status,
+    technicalData: structuredClone(row.technicalData),
+    changedAt: row.changedAt,
+    changedBy: row.changedBy,
+    reason: row.reason,
+    origin: row.origin,
+    correlationId: row.correlationId,
+  };
+}
+
 function auditValues(audit: AssetAuditEntry): typeof assetAuditLog.$inferInsert {
   return {
     tenantId: audit.tenantId,
@@ -41,11 +59,63 @@ function auditValues(audit: AssetAuditEntry): typeof assetAuditLog.$inferInsert 
   };
 }
 
+function versionValues(
+  asset: Asset,
+  audit: AssetAuditEntry,
+): typeof assetVersions.$inferInsert {
+  return {
+    tenantId: asset.tenantId,
+    assetId: asset.id,
+    version: asset.version,
+    code: asset.code,
+    name: asset.name,
+    assetType: asset.assetType,
+    status: asset.status,
+    technicalData: structuredClone(asset.technicalData),
+    changedAt: audit.occurredAt,
+    changedBy: audit.actorUserId,
+    reason: audit.reason,
+    origin: audit.origin,
+    correlationId: audit.correlationId,
+  };
+}
+
+function outboxValues(
+  asset: Asset,
+  audit: AssetAuditEntry,
+): typeof assetEventOutbox.$inferInsert {
+  const eventType = audit.action === "created" ? "asset.created" : "asset.updated";
+  return {
+    eventId: `asset:${asset.tenantId}:${asset.id}:v${asset.version}:${eventType}`,
+    eventType,
+    eventVersion: "1",
+    tenantId: asset.tenantId,
+    assetId: asset.id,
+    assetVersion: asset.version,
+    correlationId: audit.correlationId,
+    occurredAt: audit.occurredAt,
+    payload: {
+      assetId: asset.id,
+      version: asset.version,
+      code: asset.code,
+      name: asset.name,
+      assetType: asset.assetType,
+      status: asset.status,
+      technicalData: structuredClone(asset.technicalData),
+      changedBy: audit.actorUserId,
+      reason: audit.reason,
+      origin: audit.origin,
+    },
+  };
+}
+
 export class PostgresAssetRepository implements AssetRepository {
   private readonly db;
 
   constructor(pool: Pool) {
-    this.db = drizzle(pool, { schema: { assets, assetAuditLog } });
+    this.db = drizzle(pool, {
+      schema: { assets, assetAuditLog, assetVersions, assetEventOutbox },
+    });
   }
 
   async findById(tenantId: string, assetId: string): Promise<Asset | null> {
@@ -68,6 +138,15 @@ export class PostgresAssetRepository implements AssetRepository {
     return row ? toAsset(row) : null;
   }
 
+  async listHistory(tenantId: string, assetId: string): Promise<AssetVersionSnapshot[]> {
+    const rows = await this.db
+      .select()
+      .from(assetVersions)
+      .where(and(eq(assetVersions.tenantId, tenantId), eq(assetVersions.assetId, assetId)))
+      .orderBy(asc(assetVersions.version));
+    return rows.map(toSnapshot);
+  }
+
   async create(asset: Asset, audit: AssetAuditEntry): Promise<Asset> {
     try {
       return await this.db.transaction(async tx => {
@@ -88,7 +167,10 @@ export class PostgresAssetRepository implements AssetRepository {
 
         const row = rows[0];
         if (!row) throw new Error("Asset insert returned no row");
+
         await tx.insert(assetAuditLog).values(auditValues(audit));
+        await tx.insert(assetVersions).values(versionValues(asset, audit));
+        await tx.insert(assetEventOutbox).values(outboxValues(asset, audit));
         return toAsset(row);
       });
     } catch (error) {
@@ -137,8 +219,11 @@ export class PostgresAssetRepository implements AssetRepository {
             : { status: "not_found" as const };
         }
 
+        const persisted = toAsset(updated);
         await tx.insert(assetAuditLog).values(auditValues(audit));
-        return { status: "updated" as const, asset: toAsset(updated) };
+        await tx.insert(assetVersions).values(versionValues(persisted, audit));
+        await tx.insert(assetEventOutbox).values(outboxValues(persisted, audit));
+        return { status: "updated" as const, asset: persisted };
       });
     } catch (error) {
       if (isTenantCodeConflict(error)) return { status: "code_conflict" };
