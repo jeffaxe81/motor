@@ -46,6 +46,9 @@ jobs:
           name: pnpm-lock
           path: pnpm-lock.yaml
 
+      - name: Verificar dependências de produção
+        run: pnpm security:check
+
       - name: Verificar TypeScript
         run: pnpm check
 
