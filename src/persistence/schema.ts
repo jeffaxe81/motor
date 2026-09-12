@@ -51,7 +51,7 @@ export const assetAuditLog = pgTable(
       name: "asset_audit_asset_tenant_fk",
       columns: [table.assetId, table.tenantId],
       foreignColumns: [assets.id, assets.tenantId],
-    }).onDelete("cascade"),
+    }).onDelete("restrict"),
     index("asset_audit_tenant_asset_idx").on(table.tenantId, table.assetId, table.occurredAt),
   ],
 );
