@@ -1,10 +1,16 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, gte, lte } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/node-postgres";
 import type { Pool } from "pg";
-import type { Asset, AssetAuditEntry, AssetVersionSnapshot } from "../domain/asset.js";
+import type {
+  Asset,
+  AssetAuditEntry,
+  AssetBounds,
+  AssetLocation,
+  AssetVersionSnapshot,
+} from "../domain/asset.js";
 import { codeConflictError } from "../domain/asset.js";
 import type { AssetRepository, AssetUpdateResult } from "../application/assetRepository.js";
-import { assetAuditLog, assetEventOutbox, assetVersions, assets } from "./schema.js";
+import { assetAuditLog, assetEventOutbox, assetLocations, assetVersions, assets } from "./schema.js";
 
 function isTenantCodeConflict(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
@@ -43,6 +49,19 @@ function toSnapshot(row: typeof assetVersions.$inferSelect): AssetVersionSnapsho
     changedBy: row.changedBy,
     reason: row.reason,
     origin: row.origin,
+    correlationId: row.correlationId,
+  };
+}
+
+function toLocation(row: typeof assetLocations.$inferSelect): AssetLocation {
+  return {
+    tenantId: row.tenantId,
+    assetId: row.assetId,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    source: row.source,
+    updatedAt: row.updatedAt,
+    updatedBy: row.updatedBy,
     correlationId: row.correlationId,
   };
 }
@@ -114,7 +133,7 @@ export class PostgresAssetRepository implements AssetRepository {
 
   constructor(pool: Pool) {
     this.db = drizzle(pool, {
-      schema: { assets, assetAuditLog, assetVersions, assetEventOutbox },
+      schema: { assets, assetAuditLog, assetVersions, assetEventOutbox, assetLocations },
     });
   }
 
@@ -145,6 +164,52 @@ export class PostgresAssetRepository implements AssetRepository {
       .where(and(eq(assetVersions.tenantId, tenantId), eq(assetVersions.assetId, assetId)))
       .orderBy(asc(assetVersions.version));
     return rows.map(toSnapshot);
+  }
+
+  async setLocation(location: AssetLocation): Promise<AssetLocation> {
+    const rows = await this.db
+      .insert(assetLocations)
+      .values(location)
+      .onConflictDoUpdate({
+        target: [assetLocations.tenantId, assetLocations.assetId],
+        set: {
+          latitude: location.latitude,
+          longitude: location.longitude,
+          source: location.source,
+          updatedAt: location.updatedAt,
+          updatedBy: location.updatedBy,
+          correlationId: location.correlationId,
+        },
+      })
+      .returning();
+    const row = rows[0];
+    if (!row) throw new Error("Asset location upsert returned no row");
+    return toLocation(row);
+  }
+
+  async findLocation(tenantId: string, assetId: string): Promise<AssetLocation | null> {
+    const rows = await this.db
+      .select()
+      .from(assetLocations)
+      .where(and(eq(assetLocations.tenantId, tenantId), eq(assetLocations.assetId, assetId)))
+      .limit(1);
+    const row = rows[0];
+    return row ? toLocation(row) : null;
+  }
+
+  async findLocationsByBounds(tenantId: string, bounds: AssetBounds): Promise<AssetLocation[]> {
+    const rows = await this.db
+      .select()
+      .from(assetLocations)
+      .where(and(
+        eq(assetLocations.tenantId, tenantId),
+        gte(assetLocations.latitude, bounds.minLatitude),
+        lte(assetLocations.latitude, bounds.maxLatitude),
+        gte(assetLocations.longitude, bounds.minLongitude),
+        lte(assetLocations.longitude, bounds.maxLongitude),
+      ))
+      .orderBy(asc(assetLocations.assetId));
+    return rows.map(toLocation);
   }
 
   async create(asset: Asset, audit: AssetAuditEntry): Promise<Asset> {
