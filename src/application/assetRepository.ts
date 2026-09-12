@@ -2,6 +2,7 @@ import type {
   Asset,
   AssetAuditEntry,
   AssetBounds,
+  AssetDispatchReference,
   AssetEvidence,
   AssetInspection,
   AssetLocation,
@@ -31,6 +32,9 @@ export interface AssetRepository {
   listMaintenance(tenantId: string, assetId: string): Promise<AssetMaintenance[]>;
   addRelation(relation: AssetRelation): Promise<AssetRelation>;
   listRelations(tenantId: string, assetId: string): Promise<AssetRelation[]>;
+  addDispatchReference(reference: AssetDispatchReference): Promise<AssetDispatchReference>;
+  findDispatchReferenceByIdempotencyKey(tenantId: string, assetId: string, idempotencyKey: string): Promise<AssetDispatchReference | null>;
+  listDispatchReferences(tenantId: string, assetId: string): Promise<AssetDispatchReference[]>;
   setLocation(location: AssetLocation): Promise<AssetLocation>;
   findLocation(tenantId: string, assetId: string): Promise<AssetLocation | null>;
   findLocationsByBounds(tenantId: string, bounds: AssetBounds): Promise<AssetLocation[]>;
