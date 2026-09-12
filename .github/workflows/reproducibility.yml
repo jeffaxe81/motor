@@ -1,0 +1,24 @@
+name: Reprodutibilidade
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  frozen-lockfile:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Habilitar Corepack
+        run: corepack enable
+
+      - name: Validar instalação pelo lockfile
+        run: pnpm install --frozen-lockfile
