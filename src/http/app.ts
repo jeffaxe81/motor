@@ -24,28 +24,18 @@ export function buildAssetApp(options: BuildAssetAppOptions) {
 
   app.setErrorHandler((error, request, reply) => {
     const correlationId = correlationIdFrom(request);
-
     if (error instanceof AssetError) {
       return reply.status(error.httpStatus).send({
         envelopeVersion: "1",
         correlationId,
-        error: {
-          code: error.code,
-          message: error.message,
-          retryable: false,
-        },
+        error: { code: error.code, message: error.message, retryable: false },
       });
     }
-
     request.log.error({ err: error, correlationId }, "Unhandled asset API error");
     return reply.status(500).send({
       envelopeVersion: "1",
       correlationId,
-      error: {
-        code: "internal.error",
-        message: "Internal server error",
-        retryable: false,
-      },
+      error: { code: "internal.error", message: "Internal server error", retryable: false },
     });
   });
 
@@ -53,6 +43,11 @@ export function buildAssetApp(options: BuildAssetAppOptions) {
     const context = await options.resolveContext(request);
     const asset = await service.create(context, request.body);
     return reply.status(201).send(asset);
+  });
+
+  app.get("/api/v1/assets", async request => {
+    const context = await options.resolveContext(request);
+    return service.search(context, request.query);
   });
 
   app.get("/api/v1/assets/map", async request => {
@@ -75,10 +70,7 @@ export function buildAssetApp(options: BuildAssetAppOptions) {
   app.get("/api/v1/assets/:id/compare", async request => {
     const context = await options.resolveContext(request);
     const { id } = request.params as { id: string };
-    const { fromVersion, toVersion } = request.query as {
-      fromVersion?: string;
-      toVersion?: string;
-    };
+    const { fromVersion, toVersion } = request.query as { fromVersion?: string; toVersion?: string };
     return service.compare(context, id, Number(fromVersion), Number(toVersion));
   });
 
