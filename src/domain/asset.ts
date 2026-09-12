@@ -8,6 +8,22 @@ const assetChangeMetadataSchema = z.object({
   origin: z.string().trim().min(1).max(128),
 }).strict();
 
+export const assetLocationInputSchema = z.object({
+  latitude: z.number().finite().min(-90).max(90),
+  longitude: z.number().finite().min(-180).max(180),
+  source: z.string().trim().min(1).max(128),
+}).strict();
+
+export const assetBoundsSchema = z.object({
+  minLatitude: z.number().finite().min(-90).max(90),
+  maxLatitude: z.number().finite().min(-90).max(90),
+  minLongitude: z.number().finite().min(-180).max(180),
+  maxLongitude: z.number().finite().min(-180).max(180),
+}).strict().refine(
+  value => value.minLatitude <= value.maxLatitude && value.minLongitude <= value.maxLongitude,
+  { message: "Invalid geographic bounds" },
+);
+
 export const assetCreateInputSchema = z.object({
   code: z.string().trim().min(1).max(100),
   name: z.string().trim().min(1).max(200),
@@ -40,6 +56,8 @@ export const assetRequestContextSchema = z.object({
 export type AssetCreateInput = z.infer<typeof assetCreateInputSchema>;
 export type AssetUpdateInput = z.infer<typeof assetUpdateInputSchema>;
 export type AssetRequestContext = z.infer<typeof assetRequestContextSchema>;
+export type AssetLocationInput = z.infer<typeof assetLocationInputSchema>;
+export type AssetBounds = z.infer<typeof assetBoundsSchema>;
 
 export interface Asset {
   id: string;
@@ -54,6 +72,17 @@ export interface Asset {
   createdBy: string;
   updatedAt: Date;
   updatedBy: string;
+}
+
+export interface AssetLocation {
+  tenantId: string;
+  assetId: string;
+  latitude: number;
+  longitude: number;
+  source: string;
+  updatedAt: Date;
+  updatedBy: string;
+  correlationId: string;
 }
 
 export interface AssetAuditEntry {
