@@ -78,4 +78,32 @@ describe("M5 asset timeline", () => {
       code: "asset.not_found",
     });
   });
+
+  it("keeps deterministic ordering with a larger history", async () => {
+    const repository = new InMemoryAssetRepository();
+    let tick = 0;
+    const service = new AssetService(repository, {
+      now: () => new Date(1789232400000 + tick++ * 1000),
+      generateId: () => "50000000-0000-4000-8000-000000000003",
+    });
+    const created = await service.create(context("tenant-a"), {
+      code: "AT-VOLUME",
+      name: "Ativo volume",
+      assetType: "poste",
+      status: "ativo",
+      technicalData: {},
+    });
+
+    for (let version = 1; version <= 50; version++) {
+      await service.update(context("tenant-a"), created.id, {
+        expectedVersion: version,
+        technicalData: { sequence: version },
+        change: { reason: `volume-${version}`, origin: "load-test" },
+      });
+    }
+
+    const timeline = await service.timeline(context("tenant-a"), created.id);
+    expect(timeline).toHaveLength(51);
+    expect(timeline.map(item => item.version)).toEqual(Array.from({ length: 51 }, (_, index) => index + 1));
+  });
 });
