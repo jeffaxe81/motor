@@ -1,0 +1,40 @@
+name: Qualidade
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter código
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Habilitar Corepack
+        run: corepack enable
+
+      - name: Instalar dependências
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Publicar lockfile inicial
+        if: ${{ hashFiles('pnpm-lock.yaml') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pnpm-lock
+          path: pnpm-lock.yaml
+
+      - name: Verificar TypeScript
+        run: pnpm check
+
+      - name: Executar testes
+        run: pnpm test
+
+      - name: Gerar build
+        run: pnpm build
