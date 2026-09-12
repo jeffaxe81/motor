@@ -61,6 +61,12 @@ export function buildAssetApp(options: BuildAssetAppOptions) {
     });
   });
 
+  app.get("/api/v1/assets/:id/timeline", async request => {
+    const context = await options.resolveContext(request);
+    const { id } = request.params as { id: string };
+    return service.timeline(context, id);
+  });
+
   app.get("/api/v1/assets/:id/history", async request => {
     const context = await options.resolveContext(request);
     const { id } = request.params as { id: string };
